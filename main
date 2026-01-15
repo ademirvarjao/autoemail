@@ -1,0 +1,420 @@
+/**
+ * ====================================================================
+ * AUTO EMAIL - Sistema de Automação de Emails
+ * ====================================================================
+ * @author Ademir Varjão
+ * @version 2.1
+ * ====================================================================
+ */
+
+// ====================================================================
+// CONFIGURAÇÕES
+// ====================================================================
+
+var CONFIG = {
+  NOME_ABA_TEMPLATES: '💾 Meus Templates',
+  NOME_ABA_RELATORIO: '📊 Relatório de Envios'
+};
+
+// ====================================================================
+// MENU E INICIALIZAÇÃO
+// ====================================================================
+
+function onOpen() {
+  var ui = SpreadsheetApp.getUi();
+  ui.createMenu('Auto Email')
+    .addItem('Abrir Painel de Envio', 'abrirPainel')
+    .addToUi();
+  
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheetTemplates = ss.getSheetByName(CONFIG.NOME_ABA_TEMPLATES);
+  if (sheetTemplates && !sheetTemplates.isSheetHidden()) {
+    sheetTemplates.hideSheet();
+  }
+}
+
+function abrirPainel() {
+  var t = HtmlService.createTemplateFromFile('Painel');
+  t.userEmail = Session.getActiveUser().getEmail();
+  var html = t.evaluate().setWidth(1150).setHeight(850).setTitle('📧 Editor e Envio Pro');
+  SpreadsheetApp.getUi().showModalDialog(html, '📧 Painel de Envio e Editor');
+}
+
+// ====================================================================
+// DADOS E VARIÁVEIS
+// ====================================================================
+
+function getVariaveisDisponiveis() {
+  var dados = getSheetDataComFiltro();
+  if (!dados || dados.length === 0) return [];
+  return dados[0].map(function(h) { 
+    return String(h).replace(/\s+/g, " ").trim(); 
+  });
+}
+
+function contarDestinatarios() {
+  var dados = getSheetDataComFiltro();
+  if (!dados || dados.length <= 1) return 0;
+  return dados.length - 1;
+}
+
+function getSheetDataComFiltro() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var range = sheet.getDataRange();
+  var values = range.getValues();
+  if (!sheet.getFilter()) {
+    return values;
+  }
+
+  var visibleData = [];
+  visibleData.push(values[0]); 
+  
+  var startRow = range.getRow();
+  for (var i = 1; i < values.length; i++) {
+    if (!sheet.isRowHiddenByFilter(startRow + i)) {
+      visibleData.push(values[i]);
+    }
+  }
+  
+  return visibleData;
+}
+
+// ====================================================================
+// GESTÃO DE TEMPLATES
+// ====================================================================
+
+function salvarNovoTemplate(nome, assunto, html) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName(CONFIG.NOME_ABA_TEMPLATES);
+    
+    if (!sheet) {
+      sheet = ss.insertSheet(CONFIG.NOME_ABA_TEMPLATES);
+      sheet.appendRow(['Nome', 'Assunto', 'HTML', 'Data']);
+      sheet.getRange("A1:D1").setFontWeight("bold");
+      sheet.setColumnWidth(3, 50);
+      sheet.hideSheet();
+    }
+
+    var dados = sheet.getDataRange().getValues();
+    var linhaParaAtualizar = -1;
+    for (var i = 1; i < dados.length; i++) {
+      if (dados[i][0] === nome) { 
+        linhaParaAtualizar = i + 1;
+        break; 
+      }
+    }
+
+    if (linhaParaAtualizar > 0) {
+      sheet.getRange(linhaParaAtualizar, 2, 1, 3).setValues([[assunto, html, new Date()]]);
+      return { success: true, message: 'Template "' + nome + '" atualizado!' };
+    } else {
+      sheet.appendRow([nome, assunto, html, new Date()]);
+      return { success: true, message: 'Template "' + nome + '" salvo!' };
+    }
+  } catch (e) { 
+    return { success: false, message: 'Erro: ' + e.message };
+  }
+}
+
+function listarMeusTemplates() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(CONFIG.NOME_ABA_TEMPLATES);
+  if (!sheet) return [];
+  var dados = sheet.getDataRange().getValues();
+  var lista = [];
+  for (var i = 1; i < dados.length; i++) { 
+    if (dados[i][0]) lista.push(dados[i][0]);
+  }
+  return lista;
+}
+
+function carregarTemplateEspecifico(nome) {
+  try {
+    Logger.log('Carregando template: ' + nome);
+    
+    if (!nome || typeof nome !== 'string') {
+      return { success: false, message: 'Nome inválido' };
+    }
+    
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName(CONFIG.NOME_ABA_TEMPLATES);
+    
+    if (!sheet) {
+      return { success: false, message: 'Aba de templates não encontrada' };
+    }
+    
+    var dados = sheet.getDataRange().getValues();
+    
+    for (var i = 1; i < dados.length; i++) {
+      if (String(dados[i][0]).trim() === String(nome).trim()) {
+        Logger.log('Template encontrado na linha ' + (i+1));
+        
+        var assunto = String(dados[i][1] || '');
+        var corpo = String(dados[i][2] || '');
+        
+        Logger.log('Assunto: ' + assunto.substring(0, 50));
+        Logger.log('Corpo length: ' + corpo.length);
+        
+        return {
+          success: true,
+          message: 'Template carregado',
+          assunto: assunto,
+          corpo: corpo
+        };
+      }
+    }
+    
+    return { success: false, message: 'Template não encontrado' };
+    
+  } catch (e) {
+    Logger.log('Erro: ' + e.message);
+    return { success: false, message: 'Erro: ' + e.message };
+  }
+}
+
+function excluirTemplate(nome) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(CONFIG.NOME_ABA_TEMPLATES);
+  var dados = sheet.getDataRange().getValues();
+  for (var i = 1; i < dados.length; i++) {
+    if (dados[i][0] === nome) { 
+      sheet.deleteRow(i + 1);
+      return { success: true }; 
+    }
+  }
+  return { success: false };
+}
+
+// ====================================================================
+// IMPORTAÇÃO
+// ====================================================================
+
+function getAssinaturaGmail() {
+  try {
+    var r = Gmail.Users.Settings.SendAs.list('me');
+    if (r.sendAs) {
+      for (var i = 0; i < r.sendAs.length; i++) {
+        if (r.sendAs[i].isPrimary) return r.sendAs[i].signature;
+      }
+    }
+    return "";
+  } catch (e) { 
+    return "";
+  }
+}
+
+// ====================================================================
+// ENVIO E PREVIEW
+// ====================================================================
+
+function enviarEmailTeste(html, assunto, destinatario, anexosBase64) {
+  try {
+    if (!destinatario || !destinatario.includes('@')) throw new Error("E-mail inválido.");
+    var dados = getSheetDataComFiltro();
+    var corpoFinal = html;
+    var assuntoFinal = assunto;
+    
+    if (dados.length > 1) {
+      var cabecalhos = dados[0];
+      var linhaTeste = dados[1];
+      corpoFinal = personalizarTexto(html, cabecalhos, linhaTeste);
+      assuntoFinal = personalizarTexto(assunto, cabecalhos, linhaTeste);
+    }
+
+    var htmlTeste = corpoFinal + '<br><br><hr><p style="color:gray; font-size:11px">⚠️ [TESTE] Dados da 1ª linha visível.</p>';
+    
+    var arquivosBlobs = [];
+    if (anexosBase64 && anexosBase64.length > 0) {
+      arquivosBlobs = processarBlobs(anexosBase64);
+    }
+
+    GmailApp.sendEmail(destinatario, "[TESTE] " + assuntoFinal, "", { 
+      htmlBody: htmlTeste,
+      attachments: arquivosBlobs
+    });
+    
+    return { success: true, message: "✅ Teste enviado para: " + destinatario };
+  } catch (e) { 
+    return { success: false, message: "Erro: " + e.message };
+  }
+}
+
+function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBase64) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet();
+  try {
+    var dados = getSheetDataComFiltro();
+    if (!dados || dados.length < 2) return { success: false, message: 'Nenhuma linha visível para envio.' };
+
+    var totalLinhas = dados.length - 1;
+    var cabecalhos = dados[0];
+    var linhas = dados.slice(1);
+    
+    var indexEmail = identificarColunaEmail(cabecalhos);
+    if (indexEmail === -1) {
+      return { success: false, message: 'Erro: Coluna de "E-mail" não encontrada no cabeçalho.' };
+    }
+
+    var ccGlobalArray = [];
+    if (ccGlobalString && ccGlobalString.trim() !== "") {
+      ccGlobalArray = ccGlobalString.split(/[,;]/).map(function(e){ return e.trim(); }).filter(isValidEmail);
+    }
+
+    var arquivosBlobs = [];
+    if (anexosBase64 && anexosBase64.length > 0) {
+      arquivosBlobs = processarBlobs(anexosBase64);
+    }
+
+    var sucesso = 0, erro = 0, listaErros = [];
+    for (var i = 0; i < linhas.length; i++) {
+      try {
+        var linha = linhas[i];
+        var celulaEmail = String(linha[indexEmail]);
+        var emailsDaLinha = celulaEmail.split(/[;,]/).map(function(e){ return e.trim(); }).filter(isValidEmail);
+        
+        if (emailsDaLinha.length > 0) {
+          var emailPara = emailsDaLinha[0];
+          var ccDaLinha = emailsDaLinha.slice(1); 
+          
+          var ccFinal = ccDaLinha.concat(ccGlobalArray).filter(function(item, pos, self) {
+            return self.indexOf(item) == pos;
+          });
+
+          var corpo = personalizarTexto(htmlFinal, cabecalhos, linha);
+          var assunto = personalizarTexto(assuntoFinal, cabecalhos, linha);
+
+          var options = { htmlBody: corpo, name: 'JR Contabilidade' };
+          if (ccFinal.length > 0) options.cc = ccFinal.join(',');
+          if (arquivosBlobs.length > 0) options.attachments = arquivosBlobs;
+
+          GmailApp.sendEmail(emailPara, assunto, '', options);
+          sucesso++;
+          
+          Utilities.sleep(800); 
+        } else {
+           erro++;
+           listaErros.push('Linha '+(i+2)+': Sem e-mail válido');
+        }
+        
+        if (i % 5 === 0) sheet.toast('Enviando... ' + Math.round(((i+1)/totalLinhas)*100) + '%', '🚀', 3);
+      } catch (e) { 
+        erro++; 
+        listaErros.push('Linha '+(i+2)+' Erro: ' + e.message);
+      }
+    }
+    
+    registrarLog(assuntoFinal, totalLinhas, sucesso, erro, listaErros);
+    sheet.toast('Finalizado!', '✅', 5);
+    return { success: true, message: '✅ Fim do Processamento!\n\nEnviados: '+sucesso+'\nFalhas: '+erro };
+  } catch (e) { 
+    return { success: false, message: 'Erro Fatal: '+e.toString() };
+  }
+}
+
+function gerarPreview(htmlEditor, assuntoEditor, index) {
+  try {
+    var dados = getSheetDataComFiltro();
+    if (!dados || dados.length < 2) return { error: 'Nenhuma linha visível para visualizar.' };
+
+    if (index < 0) index = 0;
+    if (index >= (dados.length - 1)) index = dados.length - 2;
+
+    var cabecalhos = dados[0];
+    var linha = dados[index + 1]; 
+    
+    var indexEmail = identificarColunaEmail(cabecalhos);
+    var celulaEmail = "";
+    
+    if (indexEmail !== -1) {
+       celulaEmail = String(linha[indexEmail]);
+    }
+    
+    var emails = celulaEmail.split(/[;,]/).map(function(e){ return e.trim(); });
+    
+    return {
+      index: index,
+      total: dados.length - 1,
+      para: (emails.length > 0 && emails[0] !== "") ? emails[0] : (indexEmail === -1 ? '⚠️ Coluna "Email" não encontrada' : 'Sem Email'),
+      cc: emails.length > 1 ? emails.slice(1).join(', ') : '-',
+      htmlPreview: personalizarTexto(htmlEditor, cabecalhos, linha),
+      assuntoPreview: personalizarTexto(assuntoEditor, cabecalhos, linha)
+    };
+  } catch (e) { return { error: e.message }; }
+}
+
+// ====================================================================
+// FUNÇÕES AUXILIARES
+// ====================================================================
+
+function personalizarTexto(txt, h, r) {
+  if (!txt) return "";
+  var map = {};
+  h.forEach(function(v, i) {
+    var cleanHeader = String(v)
+      .replace(/<[^>]+>/g, "")      
+      .replace(/&nbsp;/gi, " ")     
+      .replace(/\s+/g, " ")         
+      .trim()
+      .toLowerCase();
+    map[cleanHeader] = i;
+  });
+  
+  return txt.replace(/\{\{([\s\S]+?)\}\}/g, function(match, conteudo) {
+    var chaveLimpa = conteudo
+      .replace(/<[^>]+>/g, "")    
+      .replace(/&nbsp;/gi, " ")   
+      .replace(/\s+/g, " ")       
+      .trim()
+      .toLowerCase();
+
+    var idx = map[chaveLimpa];
+
+    if (idx !== undefined) {
+      var val = r[idx];
+      if (val instanceof Date) return Utilities.formatDate(val, Session.getScriptTimeZone(), "dd/MM/yyyy");
+      return val;
+    }
+    return match;
+  });
+}
+
+function registrarLog(assunto, total, sucessos, erros, detalhesArray) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(CONFIG.NOME_ABA_RELATORIO);
+  if (!sheet) { 
+    sheet = ss.insertSheet(CONFIG.NOME_ABA_RELATORIO);
+    var headers = ['Data/Hora', 'Modelo/Assunto', 'Total Processado', 'Sucesso', 'Falhas', 'Detalhes dos Erros'];
+    sheet.appendRow(headers);
+    sheet.getRange("A1:F1").setFontWeight("bold").setBackground("#f3f3f3");
+    sheet.setColumnWidth(1, 140);
+    sheet.setColumnWidth(2, 200);
+    sheet.setColumnWidth(6, 300);
+    sheet.setFrozenRows(1);
+  }
+  
+  var dataHora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
+  var detalhesStr = detalhesArray.length > 0 ? detalhesArray.join(' | ') : "Nenhum erro";
+  
+  sheet.appendRow([dataHora, assunto, total, sucessos, erros, detalhesStr]);
+}
+
+function isValidEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
+
+function identificarColunaEmail(cabecalhos) {
+  var regex = /^(e[- ]?mail)$/i; 
+  for (var i = 0; i < cabecalhos.length; i++) {
+    var header = String(cabecalhos[i]).trim();
+    if (regex.test(header)) {
+      return i; 
+    }
+  }
+  return -1; 
+}
+
+function processarBlobs(anexosBase64) {
+  if (!anexosBase64) return [];
+  return anexosBase64.map(function(obj) {
+    var blob = Utilities.newBlob(Utilities.base64Decode(obj.data), obj.type, obj.name);
+    return blob;
+  });
+}
