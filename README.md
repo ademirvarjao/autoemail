@@ -1,84 +1,83 @@
-📧 Auto Email - Sistema de Automação de Emails
-Versão: 2.1
+# 📧 Auto Email - Sistema de Automação e Rastreamento
 
-Autor: Ademir Varjão
+Sistema profissional de envio de e-mails em massa (Mail Merge) integrado ao Google Sheets e Gmail, agora com **Rastreamento de Abertura em Tempo Real**.
 
-O Auto Email é uma solução robusta baseada em Google Apps Script para envio de emails em massa e personalizados diretamente do Google Sheets. Ele oferece um painel visual moderno para edição de emails, gestão de templates e controle de envios, funcionando como um "Mail Merge" avançado.
+Desenvolvido para facilitar cobranças, comunicados e marketing, permitindo personalização avançada e controle total sobre quem leu suas mensagens.
 
-🚀 Funcionalidades Principais
-Editor Rico (WYSIWYG): Interface visual para criar emails com formatação (negrito, itálico, listas), inserção de imagens e limpeza de formatação.
+---
 
-Personalização com Variáveis: Utilize dados da sua planilha (ex: {{Nome}}, {{Empresa}}) para personalizar o assunto e o corpo de cada email enviado.
+## 🚀 Funcionalidades Principais
 
-Gestão de Templates: Salve, carregue e exclua modelos de email para reutilização futura. Os templates são armazenados em uma aba oculta dedicada.
+* **Envio Personalizado:** Substituição automática de variáveis (ex: `{{ Nome }}`, `{{ Valor }}`) no corpo e no assunto.
+* **Editor HTML Visual:** Crie e formate e-mails com facilidade, sem precisar saber código.
+* **Gestão de Templates:** Salve seus modelos de e-mail favoritos para reutilizar depois.
+* **Anexos Múltiplos:** Envie arquivos PDF, imagens ou documentos junto com o e-mail.
+* **Cópia (CC) Automática:** Defina e-mails em cópia global ou por linha.
+* **🆕 Rastreamento de Leitura (Pixel):** Saiba exatamente **quem abriu** o e-mail e **quando**.
+* **🆕 Relatórios Detalhados:**
+    * `📊 Relatório de Envios`: Resumo geral de sucesso/falha.
+    * `📊 Rastreamento Detalhado`: Lista individual com status de leitura em tempo real.
 
-Envio Inteligente:
+---
 
-Filtros: O sistema respeita os filtros da planilha, enviando emails apenas para as linhas visíveis.
+## 🛠️ Instalação e Configuração
 
-CC Global: Defina um email em cópia (CC) para todos os disparos.
+### 1. Preparar a Planilha
+1. Abra sua planilha no Google Sheets.
+2. Vá em **Extensões** > **Apps Script**.
+3. Copie o código do arquivo `main.js` (ou `Code.gs`) deste projeto e cole no editor.
+4. Crie um arquivo HTML no editor chamado `Painel.html` e cole o código do painel (frontend).
 
-Anexos: Suporte para múltiplos anexos de arquivos locais.
+### 2. Ativar o Rastreamento (⚠️ Passo Obrigatório)
+Para que a confirmação de leitura funcione, você precisa publicar o script como um App da Web:
 
-Importação de Assinatura: Importe automaticamente sua assinatura configurada no Gmail.
+1. No editor de script, clique no botão azul **Implantar** (canto superior direito) > **Nova implantação**.
+2. Clique no ícone de engrenagem e selecione **App da Web**.
+3. Preencha as configurações:
+    * **Descrição:** `Auto Email Rastreamento`
+    * **Executar como:** `Eu` (seu e-mail).
+    * **Quem pode acessar:** `Qualquer pessoa` (Essencial para o pixel funcionar).
+4. Clique em **Implantar** e autorize o acesso.
+5. Pronto! Não é preciso copiar a URL, o sistema detecta automaticamente.
 
-Relatórios Automáticos: Gera logs detalhados de sucesso e falha em uma aba "📊 Relatório de Envios".
+---
 
-Modo de Visualização (Preview): Visualize exatamente como cada destinatário receberá o email antes de enviar.
+## 📋 Como Usar
 
-🛠️ Instalação
-Abra uma planilha do Google Sheets.
+1.  **Organize seus Dados:**
+    * Na primeira linha da planilha, coloque os cabeçalhos (ex: `Nome`, `Email`, `Vencimento`).
+    * **Importante:** Deve haver uma coluna com o nome `Email`, `E-mail` ou `E mail`.
 
-Vá em Extensões > Apps Script.
+2.  **Abra o Painel:**
+    * Atualize a planilha (F5).
+    * No menu superior, clique em **Auto Email** > **📧 Abrir Painel de Envio**.
 
-Crie dois arquivos no editor:
+3.  **Escreva e Envie:**
+    * Escreva seu e-mail usando o editor.
+    * Use variáveis clicando nos botões acima do editor (ex: `{{ Nome }}`).
+    * Faça um **Teste de Envio** para seu próprio e-mail.
+    * Clique em **Enviar E-mails** para disparar para toda a lista filtrada/visível.
 
-Code.gs (ou main.gs): Cole o conteúdo do código do servidor (backend).
+4.  **Acompanhe os Resultados:**
+    * Após o envio, uma nova aba `📊 Rastreamento Detalhado` será criada.
+    * Acompanhe por lá quem já abriu (o status mudará para **LIDO / ABERTO** em azul).
 
-Painel.html: Cole o conteúdo do código HTML/Frontend. Importante: O arquivo deve se chamar exatamente Painel para que o script o reconheça.
+---
 
-Salve o projeto e recarregue a planilha.
+## ❓ Perguntas Frequentes
 
-O menu "Auto Email" aparecerá na barra superior.
+**O rastreamento é 100% preciso?**
+O rastreamento usa uma tecnologia padrão de mercado (pixel invisível). Ele funciona na maioria dos casos, mas pode não marcar como "Lido" se:
+* O destinatário bloquear o carregamento de imagens no e-mail.
+* O destinatário usar apenas o modo "texto simples".
 
-📋 Como Usar
-1. Preparando a Planilha
-A primeira linha da sua planilha deve conter os cabeçalhos (ex: Nome, Email, Cargo).
+**Posso filtrar para quem enviar?**
+Sim! O sistema respeita os filtros da planilha. Se você filtrar a planilha para mostrar apenas 5 pessoas, o e-mail será enviado apenas para essas 5.
 
-É obrigatório ter uma coluna com o nome "Email" ou "E-mail" para identificar os destinatários.
+**Existe limite de envio?**
+Sim, o Google impõe limites diários (geralmente 500 e-mails/dia para contas @gmail.com gratuitas e 2.000/dia para contas Google Workspace pagas).
 
-Aplique filtros na planilha se desejar enviar apenas para um grupo específico. O script ignorará linhas ocultas.
+---
 
-2. Painel de Envio
-Acesse Auto Email > Abrir Painel de Envio.
-
-Editor: Escreva seu email. Use os botões de formatação ou insira variáveis clicando nas "chips" na barra lateral.
-
-Anexos: Clique em "Anexar Arquivo(s)" na barra lateral para fazer upload de arquivos do seu computador.
-
-Templates:
-
-Para salvar: Clique em + Novo, defina um nome e o template atual será salvo.
-
-Para carregar: Clique no ícone de pasta (📂) ao lado do nome do template.
-
-3. Disparo
-🧪 Teste: Envia o email atual para um endereço de sua escolha para validação.
-
-🚀 Enviar: Inicia o envio em massa para todas as linhas visíveis da planilha. Uma barra de progresso mostrará o andamento.
-
-⚙️ Estrutura de Arquivos
-Abas do Sistema: O script cria automaticamente duas abas de gerenciamento (não apague ou renomeie):
-
-💾 Meus Templates: Armazena seus modelos salvos.
-
-📊 Relatório de Envios: Histórico de todos os processos de envio.
-
-💻 Tecnologias
-Backend: Google Apps Script.
-
-Frontend: HTML5, CSS3 (Variáveis CSS, Flexbox), JavaScript (Vanilla).
-
-UI: Design responsivo inspirado no Material Design.
-
-Gerado automaticamente com base na análise do código fonte.
+## 👨‍💻 Desenvolvedor
+Projeto mantido e atualizado por **Ademir Varjão**.
