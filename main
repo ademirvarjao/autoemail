@@ -2,8 +2,8 @@
  * ====================================================================
  * AUTO EMAIL - Sistema de Automação de Emails
  * ====================================================================
- * @author Ademir Varjão (Atualizado com Rastreamento)
- * @version 2.3 (Com Confirmação de Leitura)
+ * @author Ademir Varjão
+ * @version 2.4
  * ====================================================================
  */
 
@@ -14,13 +14,13 @@
 const CONFIG = {
   ABA_TEMPLATES: '💾 Meus Templates',
   ABA_RELATORIO: '📊 Relatório de Envios',
-  ABA_RASTREAMENTO: '📊 Rastreamento Detalhado', // Nova aba
+  ABA_RASTREAMENTO: '📊 Rastreamento Detalhado',
   NOME_REMETENTE: 'JR Contabilidade', 
-  DELAY_ENVIO_MS: 1500, // Aumentado levemente para segurança
+  DELAY_ENVIO_MS: 1500, 
   CORES_LOG: {
     SUCESSO: '#d9ead3',
     ERRO: '#f4cccc',
-    ABERTO: '#c9daf8' // Cor para indicar e-mail aberto
+    ABERTO: '#c9daf8'
   }
 };
 
@@ -28,9 +28,6 @@ const CONFIG = {
 // WEB APP - RASTREAMENTO DE ABERTURA (PIXEL)
 // ====================================================================
 
-/**
- * Função especial que recebe o aviso quando a imagem invisível é carregada.
- */
 function doGet(e) {
   try {
     const id = e.parameter.id;
@@ -40,35 +37,25 @@ function doGet(e) {
   } catch (err) {
     console.error("Erro no rastreamento: " + err);
   }
-  
-  // Retorna uma imagem transparente 1x1 para o cliente de e-mail não dar erro
-  // Usamos um redirecionamento para um pixel público estável para garantir que não apareça "imagem quebrada"
   return HtmlService.createHtmlOutput('<img src="https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png" alt="" />');
 }
 
-/**
- * Atualiza a planilha quando alguém abre o e-mail
- */
 function registrarAbertura(id) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(CONFIG.ABA_RASTREAMENTO);
   if (!sheet) return;
 
   const dados = sheet.getDataRange().getValues();
-  // Procura o ID na coluna A (índice 0)
-  // Estrutura esperada: [ID, Data Envio, Destinatário, Assunto, Status, Data Abertura, Contador]
   
   for (let i = 1; i < dados.length; i++) {
     if (String(dados[i][0]) === String(id)) {
       const linha = i + 1;
-      const contadorAtual = dados[i][6] || 0; // Coluna G é o contador
+      const contadorAtual = dados[i][6] || 0;
       
-      // Atualiza: Data da Última Abertura e Incrementa Contador
       const dataAgora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
-      
-      sheet.getRange(linha, 6).setValue(dataAgora); // Coluna F: Data Abertura
-      sheet.getRange(linha, 7).setValue(contadorAtual + 1); // Coluna G: Contador
-      sheet.getRange(linha, 5).setValue("LIDO / ABERTO").setBackground(CONFIG.CORES_LOG.ABERTO); // Coluna E: Status
+      sheet.getRange(linha, 6).setValue(dataAgora); // Data Abertura
+      sheet.getRange(linha, 7).setValue(contadorAtual + 1); // Contador
+      sheet.getRange(linha, 5).setValue("LIDO / ABERTO").setBackground(CONFIG.CORES_LOG.ABERTO); // Status
       break;
     }
   }
@@ -85,7 +72,6 @@ function onOpen() {
     .addSeparator()
     .addItem('🛠️ Configurar Rastreamento (1ª vez)', 'mostrarUrlRastreamento')
     .addToUi();
-  
   ocultarAbaTemplates();
 }
 
@@ -103,7 +89,7 @@ function abrirPainel() {
   const html = template.evaluate()
     .setWidth(1150)
     .setHeight(850)
-    .setTitle('📧 Editor e Envio Pro');
+    .setTitle('📧 Editor e Envio');
   SpreadsheetApp.getUi().showModalDialog(html, 'Painel de Envio e Editor');
 }
 
@@ -140,7 +126,6 @@ function getSheetDataComFiltro() {
   const range = sheet.getDataRange();
   const values = range.getValues();
   if (!sheet.getFilter()) return values;
-
   const visibleData = [];
   const startRow = range.getRow();
   visibleData.push(values[0]); 
@@ -206,10 +191,8 @@ function carregarTemplateEspecifico(nome) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName(CONFIG.ABA_TEMPLATES);
     if (!sheet) throw new Error('Base de templates não encontrada.');
-    
     const dados = sheet.getDataRange().getValues();
     const templateRow = dados.find(row => String(row[0]).trim() === String(nome).trim());
-    
     if (templateRow) {
       return {
         success: true,
@@ -259,16 +242,15 @@ function getAssinaturaGmail() {
 }
 
 // ====================================================================
-// ENVIO E PREVIEW DE EMAILS
+// ENVIO E PREVIEW DE EMAILS (MODIFICADO PARA IMAGENS)
 // ====================================================================
 
-function enviarEmailTeste(html, assunto, destinatario, anexosBase64) {
+function enviarEmailTeste(html, assunto, destinatario, anexosBase64, imagensInline) {
   try {
     if (!destinatario || !destinatario.includes('@')) throw new Error("E-mail de teste inválido.");
     const dados = getSheetDataComFiltro();
     let corpoFinal = html;
     let assuntoFinal = assunto;
-    
     if (dados.length > 1) {
       const cabecalhos = dados[0];
       const linhaTeste = dados[1];
@@ -277,12 +259,20 @@ function enviarEmailTeste(html, assunto, destinatario, anexosBase64) {
     }
 
     const htmlTeste = `${corpoFinal}<br><br><hr><p style="color:#666; font-size:11px; font-family:sans-serif;">⚠️ [MODO TESTE] Exemplo com dados da 1ª linha visível.</p>`;
+    
     const options = {
       htmlBody: htmlTeste,
       name: CONFIG.NOME_REMETENTE
     };
+    
+    // Tratamento de Anexos
     if (anexosBase64 && anexosBase64.length > 0) {
       options.attachments = processarBlobs(anexosBase64);
+    }
+
+    // Tratamento de Imagens Inline (Correção do Erro de Tamanho)
+    if (imagensInline && imagensInline.length > 0) {
+      options.inlineImages = prepararBlobsInline(imagensInline);
     }
 
     GmailApp.sendEmail(destinatario, `[TESTE] ${assuntoFinal}`, "Seu cliente de email não suporta HTML.", options);
@@ -292,14 +282,13 @@ function enviarEmailTeste(html, assunto, destinatario, anexosBase64) {
   }
 }
 
-function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBase64) {
+function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBase64, imagensInline) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   
   try {
     const dados = getSheetDataComFiltro();
     if (!dados || dados.length < 2) return { success: false, message: 'Nenhuma linha visível para envio.' };
     
-    // Tenta obter URL do Web App para rastreamento
     let trackingUrl = null;
     try { trackingUrl = ScriptApp.getService().getUrl(); } catch(e) {}
     
@@ -307,9 +296,8 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
     const linhas = dados.slice(1);
     const totalLinhas = linhas.length;
     const indexEmail = identificarColunaEmail(cabecalhos);
-    
     if (indexEmail === -1) return { success: false, message: 'Erro: Coluna "Email" ou "E-mail" não encontrada.' };
-
+    
     const ccGlobalArray = (ccGlobalString && ccGlobalString.trim() !== "") 
       ? ccGlobalString.split(/[,;]/).map(e => e.trim()).filter(isValidEmail) 
       : [];
@@ -317,6 +305,12 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
     const arquivosBlobs = (anexosBase64 && anexosBase64.length > 0) 
       ? processarBlobs(anexosBase64) 
       : [];
+      
+    // Prepara as imagens inline (apenas uma vez para economizar recurso)
+    let mapImagensInline = {};
+    if (imagensInline && imagensInline.length > 0) {
+      mapImagensInline = prepararBlobsInline(imagensInline);
+    }
 
     let sucesso = 0;
     let erro = 0;
@@ -336,15 +330,13 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
           let corpo = personalizarTexto(htmlFinal, cabecalhos, linha);
           const assunto = personalizarTexto(assuntoFinal, cabecalhos, linha);
           
-          // --- LÓGICA DE RASTREAMENTO ---
+          // Rastreamento
           let trackingId = "";
           if (trackingUrl) {
              trackingId = Utilities.getUuid();
-             // Insere pixel invisível no final do corpo
              const pixelHtml = `<img src="${trackingUrl}?id=${trackingId}" style="width:1px; height:1px; display:none;" alt="" />`;
              corpo += pixelHtml;
           }
-          // ------------------------------
 
           const options = { 
             htmlBody: corpo, 
@@ -353,10 +345,14 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
           
           if (ccFinal.length > 0) options.cc = ccFinal.join(',');
           if (arquivosBlobs.length > 0) options.attachments = arquivosBlobs;
+          
+          // Adiciona as imagens inline nas opções
+          if (Object.keys(mapImagensInline).length > 0) {
+            options.inlineImages = mapImagensInline;
+          }
 
           GmailApp.sendEmail(emailPara, assunto, 'Email em formato HTML.', options);
           
-          // Registra envio individual (para rastreamento)
           if (trackingId) {
             registrarEnvioIndividual(trackingId, emailPara, assunto, "ENVIADO");
           }
@@ -377,7 +373,6 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
     
     registrarLogBatch(assuntoFinal, totalLinhas, sucesso, erro, listaErros);
     ss.toast('Processo finalizado!', '✅ Concluído', 5);
-    
     let msgRetorno = `✅ Processamento Finalizado!\n\n📤 Enviados: ${sucesso}\n❌ Falhas: ${erro}`;
     if (!trackingUrl) {
       msgRetorno += `\n\n⚠️ Aviso: O Rastreamento de Abertura NÃO funcionou pois o script não está implantado como Web App.`;
@@ -386,14 +381,13 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
     }
     
     return { success: true, message: msgRetorno };
-
   } catch (e) { 
     return { success: false, message: `Erro Fatal no Processo: ${e.toString()}` };
   }
 }
 
 // ====================================================================
-// FUNÇÕES DE LOG E RASTREAMENTO (NOVAS)
+// FUNÇÕES DE LOG E RASTREAMENTO
 // ====================================================================
 
 function registrarEnvioIndividual(id, email, assunto, status) {
@@ -402,12 +396,11 @@ function registrarEnvioIndividual(id, email, assunto, status) {
   
   if (!sheet) {
     sheet = ss.insertSheet(CONFIG.ABA_RASTREAMENTO);
-    // Cria cabeçalho
     const headers = ['ID Rastreamento', 'Data Envio', 'Destinatário', 'Assunto', 'Status Atual', 'Data da Leitura', 'Qtd Aberturas'];
     sheet.appendRow(headers);
     sheet.getRange("A1:G1").setFontWeight("bold").setBackground("#c9daf8");
     sheet.setFrozenRows(1);
-    sheet.hideColumn(1); // Oculta o ID para não poluir, mas mantém lá
+    sheet.hideColumn(1); 
     sheet.setColumnWidth(2, 130);
     sheet.setColumnWidth(3, 200);
     sheet.setColumnWidth(4, 250);
@@ -416,14 +409,12 @@ function registrarEnvioIndividual(id, email, assunto, status) {
   }
   
   const dataHora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
-  // [ID, DataEnvio, Email, Assunto, Status, DataLeitura(vazio), Contador(0)]
   sheet.appendRow([id, dataHora, email, assunto, status, "", 0]);
 }
 
 function registrarLogBatch(assunto, total, sucessos, erros, detalhesArray) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(CONFIG.ABA_RELATORIO);
-  
   if (!sheet) { 
     sheet = ss.insertSheet(CONFIG.ABA_RELATORIO);
     const headers = ['Data/Hora', 'Assunto do Email', 'Total', 'Sucesso', 'Falhas', 'Detalhes dos Erros'];
@@ -442,14 +433,13 @@ function registrarLogBatch(assunto, total, sucessos, erros, detalhesArray) {
 }
 
 // ====================================================================
-// HELPERS (PREVIEW E ETC)
+// HELPERS (PREVIEW, ETC)
 // ====================================================================
 
 function gerarPreview(htmlEditor, assuntoEditor, index) {
   try {
     const dados = getSheetDataComFiltro();
     if (!dados || dados.length < 2) return { error: 'Nenhuma linha de dados disponível para visualização.' };
-    
     const maxIndex = dados.length - 2;
     const safeIndex = Math.max(0, Math.min(index, maxIndex));
     const cabecalhos = dados[0];
@@ -478,7 +468,6 @@ function personalizarTexto(texto, cabecalhos, linha) {
     const chaveLimpa = String(header).replace(/<[^>]+>/g, "").trim().toLowerCase();
     mapaColunas[chaveLimpa] = index;
   });
-
   return texto.replace(/\{\{([\s\S]+?)\}\}/g, (match, conteudo) => {
     const chave = conteudo.replace(/<[^>]+>/g, "").replace(/&nbsp;/gi, " ").trim().toLowerCase();
     const index = mapaColunas[chave];
@@ -508,4 +497,19 @@ function processarBlobs(anexosBase64) {
   return anexosBase64.map(obj => 
     Utilities.newBlob(Utilities.base64Decode(obj.data), obj.type, obj.name)
   );
+}
+
+// --- NOVA FUNÇÃO: Helper para converter dados de imagem para Blob Inline ---
+function prepararBlobsInline(listaImagens) {
+  if (!listaImagens || listaImagens.length === 0) return {};
+  
+  const inlineImages = {};
+  listaImagens.forEach(img => {
+    // A chave do objeto deve bater com "cid:xxx" no HTML.
+    // O Blob é criado a partir do Base64 puro.
+    const blob = Utilities.newBlob(Utilities.base64Decode(img.data), img.type, img.cid);
+    inlineImages[img.cid] = blob;
+  });
+  
+  return inlineImages;
 }
