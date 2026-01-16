@@ -2,8 +2,8 @@
  * ====================================================================
  * AUTO EMAIL - Sistema de Automação de Emails
  * ====================================================================
- * @author Ademir Varjão
- * @version 2.2 (Refatorado)
+ * @author Ademir Varjão (Atualizado com Rastreamento)
+ * @version 2.3 (Com Confirmação de Leitura)
  * ====================================================================
  */
 
@@ -14,28 +14,78 @@
 const CONFIG = {
   ABA_TEMPLATES: '💾 Meus Templates',
   ABA_RELATORIO: '📊 Relatório de Envios',
-  NOME_REMETENTE: 'JR Contabilidade', // Configure o nome que aparecerá no email
-  DELAY_ENVIO_MS: 1000, // Delay para evitar rate limits do Google (1 seg)
+  ABA_RASTREAMENTO: '📊 Rastreamento Detalhado', // Nova aba
+  NOME_REMETENTE: 'JR Contabilidade', 
+  DELAY_ENVIO_MS: 1500, // Aumentado levemente para segurança
   CORES_LOG: {
     SUCESSO: '#d9ead3',
-    ERRO: '#f4cccc'
+    ERRO: '#f4cccc',
+    ABERTO: '#c9daf8' // Cor para indicar e-mail aberto
   }
 };
+
+// ====================================================================
+// WEB APP - RASTREAMENTO DE ABERTURA (PIXEL)
+// ====================================================================
+
+/**
+ * Função especial que recebe o aviso quando a imagem invisível é carregada.
+ */
+function doGet(e) {
+  try {
+    const id = e.parameter.id;
+    if (id) {
+      registrarAbertura(id);
+    }
+  } catch (err) {
+    console.error("Erro no rastreamento: " + err);
+  }
+  
+  // Retorna uma imagem transparente 1x1 para o cliente de e-mail não dar erro
+  // Usamos um redirecionamento para um pixel público estável para garantir que não apareça "imagem quebrada"
+  return HtmlService.createHtmlOutput('<img src="https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png" alt="" />');
+}
+
+/**
+ * Atualiza a planilha quando alguém abre o e-mail
+ */
+function registrarAbertura(id) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.ABA_RASTREAMENTO);
+  if (!sheet) return;
+
+  const dados = sheet.getDataRange().getValues();
+  // Procura o ID na coluna A (índice 0)
+  // Estrutura esperada: [ID, Data Envio, Destinatário, Assunto, Status, Data Abertura, Contador]
+  
+  for (let i = 1; i < dados.length; i++) {
+    if (String(dados[i][0]) === String(id)) {
+      const linha = i + 1;
+      const contadorAtual = dados[i][6] || 0; // Coluna G é o contador
+      
+      // Atualiza: Data da Última Abertura e Incrementa Contador
+      const dataAgora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
+      
+      sheet.getRange(linha, 6).setValue(dataAgora); // Coluna F: Data Abertura
+      sheet.getRange(linha, 7).setValue(contadorAtual + 1); // Coluna G: Contador
+      sheet.getRange(linha, 5).setValue("LIDO / ABERTO").setBackground(CONFIG.CORES_LOG.ABERTO); // Coluna E: Status
+      break;
+    }
+  }
+}
 
 // ====================================================================
 // MENU E INICIALIZAÇÃO
 // ====================================================================
 
-/**
- * Cria o menu na planilha ao abrir.
- */
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
   ui.createMenu('Auto Email')
     .addItem('📧 Abrir Painel de Envio', 'abrirPainel')
+    .addSeparator()
+    .addItem('🛠️ Configurar Rastreamento (1ª vez)', 'mostrarUrlRastreamento')
     .addToUi();
   
-  // Oculta aba de templates se existir e estiver visível
   ocultarAbaTemplates();
 }
 
@@ -47,19 +97,27 @@ function ocultarAbaTemplates() {
   }
 }
 
-/**
- * Abre o modal do painel.
- */
 function abrirPainel() {
   const template = HtmlService.createTemplateFromFile('Painel');
   template.userEmail = Session.getActiveUser().getEmail();
-  
   const html = template.evaluate()
     .setWidth(1150)
     .setHeight(850)
     .setTitle('📧 Editor e Envio Pro');
-    
   SpreadsheetApp.getUi().showModalDialog(html, 'Painel de Envio e Editor');
+}
+
+function mostrarUrlRastreamento() {
+  try {
+    const url = ScriptApp.getService().getUrl();
+    if (url) {
+      Browser.msgBox("Status do Rastreamento", `O sistema está configurado corretamente.\nURL do Web App: ${url}`, Browser.Buttons.OK);
+    } else {
+      Browser.msgBox("Atenção", "O rastreamento ainda não está ativo. Você precisa implantar este script como 'App da Web'. Veja o manual.", Browser.Buttons.OK);
+    }
+  } catch (e) {
+    Browser.msgBox("Erro", "Não foi possível obter a URL. Certifique-se de implantar como App da Web.", Browser.Buttons.OK);
+  }
 }
 
 // ====================================================================
@@ -69,41 +127,29 @@ function abrirPainel() {
 function getVariaveisDisponiveis() {
   const dados = getSheetDataComFiltro();
   if (!dados || dados.length === 0) return [];
-  
-  // Retorna apenas os cabeçalhos limpos
   return dados[0].map(header => String(header).replace(/\s+/g, " ").trim());
 }
 
 function contarDestinatarios() {
   const dados = getSheetDataComFiltro();
-  // Subtrai 1 para descontar o cabeçalho
   return (dados && dados.length > 1) ? dados.length - 1 : 0;
 }
 
-/**
- * Obtém os dados da planilha respeitando os filtros aplicados pelo usuário.
- */
 function getSheetDataComFiltro() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   const range = sheet.getDataRange();
   const values = range.getValues();
-  
-  // Se não houver filtro, retorna tudo
   if (!sheet.getFilter()) return values;
 
   const visibleData = [];
   const startRow = range.getRow();
-  
-  // Adiciona cabeçalho
   visibleData.push(values[0]); 
   
-  // Itera verificando visibilidade
   for (let i = 1; i < values.length; i++) {
     if (!sheet.isRowHiddenByFilter(startRow + i)) {
       visibleData.push(values[i]);
     }
   }
-  
   return visibleData;
 }
 
@@ -116,19 +162,16 @@ function salvarNovoTemplate(nome, assunto, html) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let sheet = ss.getSheetByName(CONFIG.ABA_TEMPLATES);
     
-    // Cria a aba se não existir
     if (!sheet) {
       sheet = ss.insertSheet(CONFIG.ABA_TEMPLATES);
       sheet.appendRow(['Nome', 'Assunto', 'HTML', 'Data Atualização']);
       sheet.getRange("A1:D1").setFontWeight("bold");
-      sheet.setColumnWidth(3, 50); // Coluna HTML estreita para não poluir visualmente
+      sheet.setColumnWidth(3, 50);
       sheet.hideSheet();
     }
 
     const dados = sheet.getDataRange().getValues();
     let linhaParaAtualizar = -1;
-
-    // Busca se já existe template com esse nome
     for (let i = 1; i < dados.length; i++) {
       if (dados[i][0] === nome) { 
         linhaParaAtualizar = i + 1;
@@ -137,7 +180,6 @@ function salvarNovoTemplate(nome, assunto, html) {
     }
 
     const timestamp = new Date();
-    
     if (linhaParaAtualizar > 0) {
       sheet.getRange(linhaParaAtualizar, 2, 1, 3).setValues([[assunto, html, timestamp]]);
       return { success: true, message: `Template "${nome}" atualizado com sucesso!` };
@@ -155,24 +197,17 @@ function listarMeusTemplates() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(CONFIG.ABA_TEMPLATES);
   if (!sheet) return [];
-  
-  const dados = sheet.getDataRange().getValues();
-  // Retorna apenas a coluna de nomes (índice 0), ignorando o cabeçalho
-  return dados.slice(1).map(row => row[0]).filter(nome => nome);
+  return dados = sheet.getDataRange().getValues().slice(1).map(row => row[0]).filter(nome => nome);
 }
 
 function carregarTemplateEspecifico(nome) {
   try {
     if (!nome || typeof nome !== 'string') throw new Error('Nome de template inválido');
-    
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName(CONFIG.ABA_TEMPLATES);
-    
     if (!sheet) throw new Error('Base de templates não encontrada.');
     
     const dados = sheet.getDataRange().getValues();
-    
-    // Busca o template
     const templateRow = dados.find(row => String(row[0]).trim() === String(nome).trim());
     
     if (templateRow) {
@@ -183,7 +218,6 @@ function carregarTemplateEspecifico(nome) {
         corpo: String(templateRow[2] || '')
       };
     }
-    
     return { success: false, message: 'Template não encontrado' };
   } catch (e) {
     console.error(e);
@@ -197,7 +231,6 @@ function excluirTemplate(nome) {
   if (!sheet) return { success: false, message: 'Aba não encontrada' };
 
   const dados = sheet.getDataRange().getValues();
-  
   for (let i = 1; i < dados.length; i++) {
     if (dados[i][0] === nome) { 
       sheet.deleteRow(i + 1);
@@ -213,7 +246,6 @@ function excluirTemplate(nome) {
 
 function getAssinaturaGmail() {
   try {
-    // Requer serviço avançado do Gmail ativado no projeto
     const response = Gmail.Users.Settings.SendAs.list('me');
     if (response.sendAs) {
       const contaPrincipal = response.sendAs.find(account => account.isPrimary);
@@ -233,12 +265,10 @@ function getAssinaturaGmail() {
 function enviarEmailTeste(html, assunto, destinatario, anexosBase64) {
   try {
     if (!destinatario || !destinatario.includes('@')) throw new Error("E-mail de teste inválido.");
-    
     const dados = getSheetDataComFiltro();
     let corpoFinal = html;
     let assuntoFinal = assunto;
     
-    // Se houver dados na planilha, usa a primeira linha visível para preencher variáveis
     if (dados.length > 1) {
       const cabecalhos = dados[0];
       const linhaTeste = dados[1];
@@ -246,46 +276,44 @@ function enviarEmailTeste(html, assunto, destinatario, anexosBase64) {
       assuntoFinal = personalizarTexto(assunto, cabecalhos, linhaTeste);
     }
 
-    // Adiciona aviso de teste
     const htmlTeste = `${corpoFinal}<br><br><hr><p style="color:#666; font-size:11px; font-family:sans-serif;">⚠️ [MODO TESTE] Exemplo com dados da 1ª linha visível.</p>`;
-    
     const options = {
       htmlBody: htmlTeste,
       name: CONFIG.NOME_REMETENTE
     };
-
     if (anexosBase64 && anexosBase64.length > 0) {
       options.attachments = processarBlobs(anexosBase64);
     }
 
     GmailApp.sendEmail(destinatario, `[TESTE] ${assuntoFinal}`, "Seu cliente de email não suporta HTML.", options);
     return { success: true, message: `✅ Teste enviado com sucesso para: ${destinatario}` };
-    
   } catch (e) { 
     return { success: false, message: `Erro no envio de teste: ${e.message}` };
   }
 }
 
 function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBase64) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
   
   try {
     const dados = getSheetDataComFiltro();
     if (!dados || dados.length < 2) return { success: false, message: 'Nenhuma linha visível para envio.' };
-
-    const cabecalhos = dados[0];
-    const linhas = dados.slice(1); // Remove cabeçalho
-    const totalLinhas = linhas.length;
     
+    // Tenta obter URL do Web App para rastreamento
+    let trackingUrl = null;
+    try { trackingUrl = ScriptApp.getService().getUrl(); } catch(e) {}
+    
+    const cabecalhos = dados[0];
+    const linhas = dados.slice(1);
+    const totalLinhas = linhas.length;
     const indexEmail = identificarColunaEmail(cabecalhos);
+    
     if (indexEmail === -1) return { success: false, message: 'Erro: Coluna "Email" ou "E-mail" não encontrada.' };
 
-    // Processa CC Global
     const ccGlobalArray = (ccGlobalString && ccGlobalString.trim() !== "") 
       ? ccGlobalString.split(/[,;]/).map(e => e.trim()).filter(isValidEmail) 
       : [];
-
-    // Processa Anexos (uma única vez para performance)
+      
     const arquivosBlobs = (anexosBase64 && anexosBase64.length > 0) 
       ? processarBlobs(anexosBase64) 
       : [];
@@ -298,19 +326,25 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
     linhas.forEach((linha, i) => {
       try {
         const celulaEmail = String(linha[indexEmail]);
-        // Separa múltiplos emails na mesma célula
         const emailsDaLinha = celulaEmail.split(/[;,]/).map(e => e.trim()).filter(isValidEmail);
 
         if (emailsDaLinha.length > 0) {
           const emailPara = emailsDaLinha[0];
-          // Se houver mais emails na mesma célula, coloca em CC
           const ccDaLinha = emailsDaLinha.slice(1);
-          
-          // Combina CC da linha com CC Global e remove duplicatas
           const ccFinal = [...new Set([...ccDaLinha, ...ccGlobalArray])];
 
-          const corpo = personalizarTexto(htmlFinal, cabecalhos, linha);
+          let corpo = personalizarTexto(htmlFinal, cabecalhos, linha);
           const assunto = personalizarTexto(assuntoFinal, cabecalhos, linha);
+          
+          // --- LÓGICA DE RASTREAMENTO ---
+          let trackingId = "";
+          if (trackingUrl) {
+             trackingId = Utilities.getUuid();
+             // Insere pixel invisível no final do corpo
+             const pixelHtml = `<img src="${trackingUrl}?id=${trackingId}" style="width:1px; height:1px; display:none;" alt="" />`;
+             corpo += pixelHtml;
+          }
+          // ------------------------------
 
           const options = { 
             htmlBody: corpo, 
@@ -321,49 +355,105 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
           if (arquivosBlobs.length > 0) options.attachments = arquivosBlobs;
 
           GmailApp.sendEmail(emailPara, assunto, 'Email em formato HTML.', options);
-          sucesso++;
           
-          // Pequena pausa para evitar "Too many concurrent requests"
-          Utilities.sleep(CONFIG.DELAY_ENVIO_MS); 
+          // Registra envio individual (para rastreamento)
+          if (trackingId) {
+            registrarEnvioIndividual(trackingId, emailPara, assunto, "ENVIADO");
+          }
+          
+          sucesso++;
+          Utilities.sleep(CONFIG.DELAY_ENVIO_MS);
         } else {
            erro++;
            listaErros.push(`Linha ${i+2}: Nenhum e-mail válido encontrado.`);
         }
 
-        // Feedback visual a cada 5 envios
-        if (i % 5 === 0) sheet.toast(`Progresso: ${Math.round(((i+1)/totalLinhas)*100)}%`, '🚀 Enviando...', 3);
-        
+        if (i % 5 === 0) ss.toast(`Progresso: ${Math.round(((i+1)/totalLinhas)*100)}%`, '🚀 Enviando...', 3);
       } catch (e) { 
         erro++; 
         listaErros.push(`Linha ${i+2}: ${e.message}`);
       }
     });
     
-    registrarLog(assuntoFinal, totalLinhas, sucesso, erro, listaErros);
-    sheet.toast('Processo finalizado!', '✅ Concluído', 5);
+    registrarLogBatch(assuntoFinal, totalLinhas, sucesso, erro, listaErros);
+    ss.toast('Processo finalizado!', '✅ Concluído', 5);
     
-    return { 
-      success: true, 
-      message: `✅ Processamento Finalizado!\n\n📤 Enviados: ${sucesso}\n❌ Falhas: ${erro}\n\nVerifique a aba "${CONFIG.ABA_RELATORIO}" para detalhes.` 
-    };
+    let msgRetorno = `✅ Processamento Finalizado!\n\n📤 Enviados: ${sucesso}\n❌ Falhas: ${erro}`;
+    if (!trackingUrl) {
+      msgRetorno += `\n\n⚠️ Aviso: O Rastreamento de Abertura NÃO funcionou pois o script não está implantado como Web App.`;
+    } else {
+      msgRetorno += `\n\n👁️ Rastreamento Ativo: Veja a aba "${CONFIG.ABA_RASTREAMENTO}" para ver quem abriu.`;
+    }
+    
+    return { success: true, message: msgRetorno };
 
   } catch (e) { 
     return { success: false, message: `Erro Fatal no Processo: ${e.toString()}` };
   }
 }
 
+// ====================================================================
+// FUNÇÕES DE LOG E RASTREAMENTO (NOVAS)
+// ====================================================================
+
+function registrarEnvioIndividual(id, email, assunto, status) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(CONFIG.ABA_RASTREAMENTO);
+  
+  if (!sheet) {
+    sheet = ss.insertSheet(CONFIG.ABA_RASTREAMENTO);
+    // Cria cabeçalho
+    const headers = ['ID Rastreamento', 'Data Envio', 'Destinatário', 'Assunto', 'Status Atual', 'Data da Leitura', 'Qtd Aberturas'];
+    sheet.appendRow(headers);
+    sheet.getRange("A1:G1").setFontWeight("bold").setBackground("#c9daf8");
+    sheet.setFrozenRows(1);
+    sheet.hideColumn(1); // Oculta o ID para não poluir, mas mantém lá
+    sheet.setColumnWidth(2, 130);
+    sheet.setColumnWidth(3, 200);
+    sheet.setColumnWidth(4, 250);
+    sheet.setColumnWidth(5, 120);
+    sheet.setColumnWidth(6, 130);
+  }
+  
+  const dataHora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
+  // [ID, DataEnvio, Email, Assunto, Status, DataLeitura(vazio), Contador(0)]
+  sheet.appendRow([id, dataHora, email, assunto, status, "", 0]);
+}
+
+function registrarLogBatch(assunto, total, sucessos, erros, detalhesArray) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(CONFIG.ABA_RELATORIO);
+  
+  if (!sheet) { 
+    sheet = ss.insertSheet(CONFIG.ABA_RELATORIO);
+    const headers = ['Data/Hora', 'Assunto do Email', 'Total', 'Sucesso', 'Falhas', 'Detalhes dos Erros'];
+    sheet.appendRow(headers);
+    sheet.getRange("A1:F1").setFontWeight("bold").setBackground("#e0e0e0");
+    sheet.setFrozenRows(1);
+  }
+  
+  const dataHora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
+  const detalhesStr = detalhesArray.length > 0 ? detalhesArray.join(' | ') : "Sem erros";
+  sheet.appendRow([dataHora, assunto, total, sucessos, erros, detalhesStr]);
+  
+  const lastRow = sheet.getLastRow();
+  const corFundo = erros > 0 ? CONFIG.CORES_LOG.ERRO : CONFIG.CORES_LOG.SUCESSO;
+  sheet.getRange(lastRow, 1, 1, 6).setBackground(corFundo);
+}
+
+// ====================================================================
+// HELPERS (PREVIEW E ETC)
+// ====================================================================
+
 function gerarPreview(htmlEditor, assuntoEditor, index) {
   try {
     const dados = getSheetDataComFiltro();
     if (!dados || dados.length < 2) return { error: 'Nenhuma linha de dados disponível para visualização.' };
     
-    // Garante limites do index
-    const maxIndex = dados.length - 2; // -1 cabeçalho, -1 zero-based
+    const maxIndex = dados.length - 2;
     const safeIndex = Math.max(0, Math.min(index, maxIndex));
-    
     const cabecalhos = dados[0];
     const linha = dados[safeIndex + 1]; 
-    
     const indexEmail = identificarColunaEmail(cabecalhos);
     const celulaEmail = (indexEmail !== -1) ? String(linha[indexEmail]) : "";
     const emails = celulaEmail.split(/[;,]/).map(e => e.trim());
@@ -377,25 +467,18 @@ function gerarPreview(htmlEditor, assuntoEditor, index) {
       assuntoPreview: personalizarTexto(assuntoEditor, cabecalhos, linha)
     };
   } catch (e) { 
-    return { error: e.message }; 
+    return { error: e.message };
   }
 }
 
-// ====================================================================
-// HELPERS (FUNÇÕES AUXILIARES)
-// ====================================================================
-
 function personalizarTexto(texto, cabecalhos, linha) {
   if (!texto) return "";
-  
-  // Cria mapa de cabeçalho -> índice para busca rápida O(1)
   const mapaColunas = {};
   cabecalhos.forEach((header, index) => {
     const chaveLimpa = String(header).replace(/<[^>]+>/g, "").trim().toLowerCase();
     mapaColunas[chaveLimpa] = index;
   });
 
-  // Regex para encontrar {{Variavel}}
   return texto.replace(/\{\{([\s\S]+?)\}\}/g, (match, conteudo) => {
     const chave = conteudo.replace(/<[^>]+>/g, "").replace(/&nbsp;/gi, " ").trim().toLowerCase();
     const index = mapaColunas[chave];
@@ -407,34 +490,8 @@ function personalizarTexto(texto, cabecalhos, linha) {
       }
       return valor;
     }
-    return match; // Retorna original se não encontrar a variável
+    return match;
   });
-}
-
-function registrarLog(assunto, total, sucessos, erros, detalhesArray) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(CONFIG.ABA_RELATORIO);
-  
-  if (!sheet) { 
-    sheet = ss.insertSheet(CONFIG.ABA_RELATORIO);
-    const headers = ['Data/Hora', 'Assunto do Email', 'Total', 'Sucesso', 'Falhas', 'Detalhes dos Erros'];
-    sheet.appendRow(headers);
-    sheet.getRange("A1:F1").setFontWeight("bold").setBackground("#e0e0e0");
-    sheet.setColumnWidth(1, 140);
-    sheet.setColumnWidth(2, 200);
-    sheet.setColumnWidth(6, 400);
-    sheet.setFrozenRows(1);
-  }
-  
-  const dataHora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
-  const detalhesStr = detalhesArray.length > 0 ? detalhesArray.join(' | ') : "Sem erros";
-  
-  sheet.appendRow([dataHora, assunto, total, sucessos, erros, detalhesStr]);
-  
-  // Formatação condicional simples na linha inserida (opcional)
-  const lastRow = sheet.getLastRow();
-  const corFundo = erros > 0 ? CONFIG.CORES_LOG.ERRO : CONFIG.CORES_LOG.SUCESSO;
-  sheet.getRange(lastRow, 1, 1, 6).setBackground(corFundo);
 }
 
 function isValidEmail(email) { 
