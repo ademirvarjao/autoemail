@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-  <title>Auto Email Pro</title>
+  <title>Auto Email</title>
   
   <style>
     /* =========================================
@@ -164,7 +164,8 @@
     .template-item:hover .template-actions { display: flex; }
     
     .icon-btn {
-      border: none; background: transparent; cursor: pointer;
+      border: none;
+      background: transparent; cursor: pointer;
       padding: 4px; border-radius: 50%; display: flex;
     }
     .icon-btn:hover { background: rgba(0,0,0,0.1); }
@@ -229,7 +230,8 @@
     .editor-container { flex: 1; display: flex; flex-direction: column; padding: 20px 30px; overflow-y: auto; }
 
     .toolbar {
-      display: flex; gap: 4px; padding: 8px;
+      display: flex; gap: 4px;
+      padding: 8px;
       border: 1px solid var(--border-color); border-bottom: none;
       background: #f8f9fa;
       border-radius: 4px 4px 0 0;
@@ -257,7 +259,8 @@
 
     /* Loading Overlay */
     #loading {
-      position: fixed; inset: 0;
+      position: fixed;
+      inset: 0;
       background: rgba(255, 255, 255, 0.85);
       backdrop-filter: blur(2px);
       display: none;
@@ -266,7 +269,8 @@
     }
     .spinner {
       width: 40px; height: 40px;
-      border: 3px solid var(--primary-light); border-top: 3px solid var(--primary);
+      border: 3px solid var(--primary-light);
+      border-top: 3px solid var(--primary);
       border-radius: 50%; animation: spin 1s linear infinite;
     }
     @keyframes spin { 100% { transform: rotate(360deg); } }
@@ -288,7 +292,7 @@
   <aside class="sidebar">
     <div class="sidebar-header">
       <span class="material-icons">forward_to_inbox</span>
-      <span>Auto Email Pro</span>
+      <span>Auto Email</span>
     </div>
     
     <section class="tool-section">
@@ -296,6 +300,7 @@
         <span>💾 Templates</span>
         <button class="btn btn-sec btn-sm" onclick="salvarTemplateAtual()">+ Salvar Atual</button>
       </div>
+      
       <div id="listaTemplates">
         <div style="font-size: 12px; color: var(--text-muted); padding: 5px;">Carregando modelos...</div>
       </div>
@@ -309,6 +314,7 @@
         <span>Adicionar Arquivo</span>
         <input type="file" id="inpFile" multiple style="display:none" onchange="handleFileSelect(this)">
       </label>
+      
       <div id="listaAnexos"></div>
 
       <button class="btn btn-block" onclick="importarAssinatura()" style="margin-top: 8px;">
@@ -337,6 +343,7 @@
   </aside>
 
   <main class="main">
+  
     <header class="top-bar">
       <nav class="tabs">
         <button class="tab active" onclick="setMode('edit')">✏️ Editor</button>
@@ -355,7 +362,7 @@
     <section id="panel-edit" class="panel active">
       <div class="editor-container">
         <div style="margin-bottom: 20px;">
-          <label style="font-weight: 600; display: block; margin-bottom: 8px;">Assunto do Email:</label>
+         <label style="font-weight: 600; display: block; margin-bottom: 8px;">Assunto do Email:</label>
           <input type="text" id="inpSubject" class="input-field" placeholder="Digite o assunto aqui..." onfocus="lastFocused='subject'">
         </div>
 
@@ -432,13 +439,12 @@
         }
       });
     };
-
+    
     // UI HELPER
     const toggleLoad = (show) => document.getElementById('loading').style.display = show ? 'flex' : 'none';
-
+    
     function mostrarSobre() {
-      // Crédito mantido
-      alert("Auto Email Pro v2.2\n\nBaseado no projeto original de: Ademir Varjão\n2026");
+      alert("Auto Email v2.4\n\nProjeto original de: Ademir Varjão\n2026");
     }
 
     // EDITOR FUNCTIONS
@@ -509,7 +515,7 @@
         el.focus();
         el.setSelectionRange(start + txt.length, start + txt.length);
       } else { 
-        document.getElementById('editorDiv').focus(); 
+        document.getElementById('editorDiv').focus();
         document.execCommand('insertText', false, txt);
       } 
     }
@@ -650,10 +656,10 @@
         .excluirTemplate(nome);
     }
 
-    // ENVIO
+    // ENVIO (ATUALIZADO PARA IMAGENS GRANDES)
     function enviarTeste() {
       const assunto = document.getElementById('inpSubject').value;
-      const corpo = document.getElementById('editorDiv').innerHTML;
+      const corpoOriginal = document.getElementById('editorDiv').innerHTML;
       
       if(!assunto.trim()) { alert("Por favor, insira um assunto."); return; }
       
@@ -661,13 +667,17 @@
       if(!dest) return;
       
       toggleLoad(true);
+
+      // Processa imagens para CID
+      const dados = processarHtmlComImagens(corpoOriginal);
+
       google.script.run
         .withSuccessHandler((r) => { 
           toggleLoad(false); 
           alert(r.message); 
         })
         .withFailureHandler(handleError)
-        .enviarEmailTeste(corpo, assunto, dest, state.anexos);
+        .enviarEmailTeste(dados.html, assunto, dest, state.anexos, dados.imagens);
     }
 
     function enviarEmMassa() {
@@ -697,13 +707,17 @@
           if (!confirm(msg)) return;
           
           toggleLoad(true);
+
+          // Processa imagens para CID
+          const dados = processarHtmlComImagens(corpo);
+
           google.script.run
             .withSuccessHandler((r) => { 
               toggleLoad(false); 
               alert(r.message); 
             })
             .withFailureHandler(handleError)
-            .executarEnvioEmMassa(corpo, assunto, cc, state.anexos);
+            .executarEnvioEmMassa(dados.html, assunto, cc, state.anexos, dados.imagens);
         })
         .withFailureHandler(handleError)
         .contarDestinatarios();
@@ -776,6 +790,48 @@
       toggleLoad(false);
       console.error(e);
       alert(`Ocorreu um erro: ${e.message || e}`);
+    }
+
+    // --- CORREÇÃO AQUI: Função que garante o redimensionamento ---
+    function processarHtmlComImagens(htmlContent) {
+      const div = document.createElement('div');
+      div.innerHTML = htmlContent;
+      
+      const imagensInline = [];
+      const imgs = div.querySelectorAll('img');
+
+      imgs.forEach((img, index) => {
+        
+        // 1. FORÇAR TAMANHO: Copia o width do CSS para o atributo HTML
+        // Isso faz com que o Gmail/Outlook obedeçam o tamanho escolhido
+        if (img.style.width) {
+            let cleanWidth = img.style.width; 
+            // Se não for porcentagem, remove o 'px' para ficar apenas o número
+            if (!cleanWidth.includes('%')) {
+                cleanWidth = cleanWidth.replace('px', '');
+            }
+            img.setAttribute('width', cleanWidth);
+        }
+
+        // 2. CONVERTER PARA CID (Evita erro de Payload)
+        if (img.src.startsWith('data:')) {
+           const cid = 'img_' + index + '_' + Date.now(); 
+           const src = img.src;
+           
+           imagensInline.push({
+             cid: cid,
+             type: src.substring(5, src.indexOf(';')), 
+             data: src.split(',')[1] 
+           });
+           
+           img.src = 'cid:' + cid;
+        }
+      });
+
+      return { 
+        html: div.innerHTML, 
+        imagens: imagensInline 
+      };
     }
   </script>
 </body>
