@@ -3,7 +3,7 @@
  * AUTO EMAIL - Sistema de Automação de Emails
  * ====================================================================
  * @author Ademir Varjão
- * @version 2.4
+ * @version 2.4a
  * ====================================================================
  */
 
@@ -16,7 +16,7 @@ const CONFIG = {
   ABA_RELATORIO: '📊 Relatório de Envios',
   ABA_RASTREAMENTO: '📊 Rastreamento Detalhado',
   NOME_REMETENTE: 'JR Contabilidade', 
-  DELAY_ENVIO_MS: 1500, 
+  DELAY_ENVIO_MS: 1500, // Tempo entre envios para evitar bloqueio de spam
   CORES_LOG: {
     SUCESSO: '#d9ead3',
     ERRO: '#f4cccc',
@@ -25,7 +25,7 @@ const CONFIG = {
 };
 
 // ====================================================================
-// WEB APP - RASTREAMENTO DE ABERTURA (PIXEL)
+// WEB APP - RASTREAMENTO DE ABERTURA
 // ====================================================================
 
 function doGet(e) {
@@ -37,6 +37,7 @@ function doGet(e) {
   } catch (err) {
     console.error("Erro no rastreamento: " + err);
   }
+  // Retorna pixel transparente 1x1
   return HtmlService.createHtmlOutput('<img src="https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png" alt="" />');
 }
 
@@ -47,15 +48,30 @@ function registrarAbertura(id) {
 
   const dados = sheet.getDataRange().getValues();
   
+  // Mapeamento das colunas (Baseado no layout fixo: A=0... H=7)
+  // 0:Data Envio | 1:Destinatário | 2:Empresa | 3:Assunto | 4:Status | 5:1ª Leitura | 6:Ult Leitura | 7:ID
+  const COL_ID = 7; 
+  const COL_STATUS = 4;
+  const COL_1_LEITURA = 5;
+  const COL_ULT_LEITURA = 6;
+
   for (let i = 1; i < dados.length; i++) {
-    if (String(dados[i][0]) === String(id)) {
+    // Verifica o ID na última coluna (Coluna H / índice 7)
+    if (String(dados[i][COL_ID]) === String(id)) {
       const linha = i + 1;
-      const contadorAtual = dados[i][6] || 0;
-      
       const dataAgora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
-      sheet.getRange(linha, 6).setValue(dataAgora); // Data Abertura
-      sheet.getRange(linha, 7).setValue(contadorAtual + 1); // Contador
-      sheet.getRange(linha, 5).setValue("LIDO / ABERTO").setBackground(CONFIG.CORES_LOG.ABERTO); // Status
+      
+      // Verifica se já existe data na 1ª Leitura
+      const primeiraLeitura = dados[i][COL_1_LEITURA];
+      if (!primeiraLeitura || primeiraLeitura === "") {
+        sheet.getRange(linha, COL_1_LEITURA + 1).setValue(dataAgora); // Grava 1ª Leitura
+      }
+      
+      // Sempre atualiza a Última Leitura
+      sheet.getRange(linha, COL_ULT_LEITURA + 1).setValue(dataAgora);
+      
+      // Atualiza Status
+      sheet.getRange(linha, COL_STATUS + 1).setValue("LIDO / ABERTO").setBackground(CONFIG.CORES_LOG.ABERTO);
       break;
     }
   }
@@ -126,6 +142,7 @@ function getSheetDataComFiltro() {
   const range = sheet.getDataRange();
   const values = range.getValues();
   if (!sheet.getFilter()) return values;
+  
   const visibleData = [];
   const startRow = range.getRow();
   visibleData.push(values[0]); 
@@ -191,6 +208,7 @@ function carregarTemplateEspecifico(nome) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName(CONFIG.ABA_TEMPLATES);
     if (!sheet) throw new Error('Base de templates não encontrada.');
+    
     const dados = sheet.getDataRange().getValues();
     const templateRow = dados.find(row => String(row[0]).trim() === String(nome).trim());
     if (templateRow) {
@@ -224,25 +242,7 @@ function excluirTemplate(nome) {
 }
 
 // ====================================================================
-// IMPORTAÇÃO E UTILITÁRIOS
-// ====================================================================
-
-function getAssinaturaGmail() {
-  try {
-    const response = Gmail.Users.Settings.SendAs.list('me');
-    if (response.sendAs) {
-      const contaPrincipal = response.sendAs.find(account => account.isPrimary);
-      return contaPrincipal ? contaPrincipal.signature : "";
-    }
-    return "";
-  } catch (e) { 
-    console.warn('Erro ao buscar assinatura:', e);
-    return "";
-  }
-}
-
-// ====================================================================
-// ENVIO E PREVIEW DE EMAILS (MODIFICADO PARA IMAGENS)
+// ENVIO E PREVIEW DE EMAILS
 // ====================================================================
 
 function enviarEmailTeste(html, assunto, destinatario, anexosBase64, imagensInline) {
@@ -259,18 +259,15 @@ function enviarEmailTeste(html, assunto, destinatario, anexosBase64, imagensInli
     }
 
     const htmlTeste = `${corpoFinal}<br><br><hr><p style="color:#666; font-size:11px; font-family:sans-serif;">⚠️ [MODO TESTE] Exemplo com dados da 1ª linha visível.</p>`;
-    
     const options = {
       htmlBody: htmlTeste,
       name: CONFIG.NOME_REMETENTE
     };
     
-    // Tratamento de Anexos
     if (anexosBase64 && anexosBase64.length > 0) {
       options.attachments = processarBlobs(anexosBase64);
     }
 
-    // Tratamento de Imagens Inline (Correção do Erro de Tamanho)
     if (imagensInline && imagensInline.length > 0) {
       options.inlineImages = prepararBlobsInline(imagensInline);
     }
@@ -284,29 +281,44 @@ function enviarEmailTeste(html, assunto, destinatario, anexosBase64, imagensInli
 
 function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBase64, imagensInline) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  
   try {
     const dados = getSheetDataComFiltro();
     if (!dados || dados.length < 2) return { success: false, message: 'Nenhuma linha visível para envio.' };
     
+    // --- BLINDAGEM 1: Verificação de Cota Diária ---
+    const cotaRestante = MailApp.getRemainingDailyQuota();
+    // Subtraímos 1 da contagem pois a primeira linha é cabeçalho
+    const quantidadeEnvio = dados.length - 1; 
+    
+    if (cotaRestante < quantidadeEnvio) {
+      return { 
+        success: false, 
+        message: `⛔ OPERAÇÃO CANCELADA POR SEGURANÇA\n\nSua cota diária restante é de: ${cotaRestante} emails.\nVocê tentou enviar para: ${quantidadeEnvio} pessoas.\n\nReduza a lista ou tente amanhã.` 
+      };
+    }
+    // ------------------------------------------------
+
     let trackingUrl = null;
     try { trackingUrl = ScriptApp.getService().getUrl(); } catch(e) {}
     
     const cabecalhos = dados[0];
     const linhas = dados.slice(1);
     const totalLinhas = linhas.length;
+    
     const indexEmail = identificarColunaEmail(cabecalhos);
+    // Busca dinâmica pela coluna de empresa
+    const indexEmpresa = cabecalhos.findIndex(h => /^(empresa|raz[aã]o\s?social|cliente)$/i.test(String(h).trim()));
+
     if (indexEmail === -1) return { success: false, message: 'Erro: Coluna "Email" ou "E-mail" não encontrada.' };
     
     const ccGlobalArray = (ccGlobalString && ccGlobalString.trim() !== "") 
       ? ccGlobalString.split(/[,;]/).map(e => e.trim()).filter(isValidEmail) 
       : [];
-      
+
     const arquivosBlobs = (anexosBase64 && anexosBase64.length > 0) 
       ? processarBlobs(anexosBase64) 
       : [];
       
-    // Prepara as imagens inline (apenas uma vez para economizar recurso)
     let mapImagensInline = {};
     if (imagensInline && imagensInline.length > 0) {
       mapImagensInline = prepararBlobsInline(imagensInline);
@@ -316,21 +328,24 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
     let erro = 0;
     const listaErros = [];
 
-    // Loop de Envio
-    linhas.forEach((linha, i) => {
+    // --- BLINDAGEM 2: Loop For (mais seguro para interrupção) ---
+    for (let i = 0; i < linhas.length; i++) {
+      const linha = linhas[i];
       try {
         const celulaEmail = String(linha[indexEmail]);
+        // Divide por ; ou , e limpa espaços
         const emailsDaLinha = celulaEmail.split(/[;,]/).map(e => e.trim()).filter(isValidEmail);
 
         if (emailsDaLinha.length > 0) {
           const emailPara = emailsDaLinha[0];
           const ccDaLinha = emailsDaLinha.slice(1);
-          const ccFinal = [...new Set([...ccDaLinha, ...ccGlobalArray])];
+          const ccFinal = [...new Set([...ccDaLinha, ...ccGlobalArray])]; // Combina sem duplicatas
 
           let corpo = personalizarTexto(htmlFinal, cabecalhos, linha);
           const assunto = personalizarTexto(assuntoFinal, cabecalhos, linha);
           
-          // Rastreamento
+          const nomeEmpresa = (indexEmpresa > -1 && linha[indexEmpresa]) ? linha[indexEmpresa] : "-";
+          
           let trackingId = "";
           if (trackingUrl) {
              trackingId = Utilities.getUuid();
@@ -342,19 +357,16 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
             htmlBody: corpo, 
             name: CONFIG.NOME_REMETENTE 
           };
-          
+
           if (ccFinal.length > 0) options.cc = ccFinal.join(',');
           if (arquivosBlobs.length > 0) options.attachments = arquivosBlobs;
-          
-          // Adiciona as imagens inline nas opções
-          if (Object.keys(mapImagensInline).length > 0) {
-            options.inlineImages = mapImagensInline;
-          }
+          if (Object.keys(mapImagensInline).length > 0) options.inlineImages = mapImagensInline;
 
           GmailApp.sendEmail(emailPara, assunto, 'Email em formato HTML.', options);
-          
+
           if (trackingId) {
-            registrarEnvioIndividual(trackingId, emailPara, assunto, "ENVIADO");
+            const todosDestinatarios = [emailPara, ...ccFinal].join('; ');
+            registrarEnvioIndividual(trackingId, todosDestinatarios, nomeEmpresa, assunto, "ENVIADO");
           }
           
           sucesso++;
@@ -365,51 +377,65 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
         }
 
         if (i % 5 === 0) ss.toast(`Progresso: ${Math.round(((i+1)/totalLinhas)*100)}%`, '🚀 Enviando...', 3);
+
       } catch (e) { 
         erro++; 
         listaErros.push(`Linha ${i+2}: ${e.message}`);
+
+        // --- BLINDAGEM 3: Interrupção se atingir limite do Gmail no meio do processo ---
+        if (String(e).includes("Limit Exceeded") || String(e).includes("too many times")) {
+           listaErros.push("⚠️ ERRO CRÍTICO: Limite do Gmail atingido. Parando envios imediatamente.");
+           break; 
+        }
       }
-    });
+    }
     
     registrarLogBatch(assuntoFinal, totalLinhas, sucesso, erro, listaErros);
     ss.toast('Processo finalizado!', '✅ Concluído', 5);
+    
     let msgRetorno = `✅ Processamento Finalizado!\n\n📤 Enviados: ${sucesso}\n❌ Falhas: ${erro}`;
     if (!trackingUrl) {
       msgRetorno += `\n\n⚠️ Aviso: O Rastreamento de Abertura NÃO funcionou pois o script não está implantado como Web App.`;
     } else {
-      msgRetorno += `\n\n👁️ Rastreamento Ativo: Veja a aba "${CONFIG.ABA_RASTREAMENTO}" para ver quem abriu.`;
+      msgRetorno += `\n\n👁️ Rastreamento Ativo: Veja a aba "${CONFIG.ABA_RASTREAMENTO}".`;
     }
     
     return { success: true, message: msgRetorno };
+
   } catch (e) { 
     return { success: false, message: `Erro Fatal no Processo: ${e.toString()}` };
   }
 }
 
 // ====================================================================
-// FUNÇÕES DE LOG E RASTREAMENTO
+// FUNÇÕES DE LOG E RASTREAMENTO (LAYOUT CORRIGIDO)
 // ====================================================================
 
-function registrarEnvioIndividual(id, email, assunto, status) {
+function registrarEnvioIndividual(id, destinatarios, empresa, assunto, status) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(CONFIG.ABA_RASTREAMENTO);
   
   if (!sheet) {
     sheet = ss.insertSheet(CONFIG.ABA_RASTREAMENTO);
-    const headers = ['ID Rastreamento', 'Data Envio', 'Destinatário', 'Assunto', 'Status Atual', 'Data da Leitura', 'Qtd Aberturas'];
+    // Ordem estrita solicitada
+    const headers = ['Data Envio', 'Destinatário', 'Empresa', 'Assunto', 'Status Atual', 'Data da 1ª Leitura', 'Data da Última Leitura', 'ID'];
     sheet.appendRow(headers);
-    sheet.getRange("A1:G1").setFontWeight("bold").setBackground("#c9daf8");
+    sheet.getRange("A1:H1").setFontWeight("bold").setBackground("#c9daf8");
     sheet.setFrozenRows(1);
-    sheet.hideColumn(1); 
-    sheet.setColumnWidth(2, 130);
-    sheet.setColumnWidth(3, 200);
-    sheet.setColumnWidth(4, 250);
-    sheet.setColumnWidth(5, 120);
-    sheet.setColumnWidth(6, 130);
+    
+    sheet.setColumnWidth(1, 130); // Data Envio
+    sheet.setColumnWidth(2, 250); // Destinatário 
+    sheet.setColumnWidth(3, 200); // Empresa
+    sheet.setColumnWidth(4, 250); // Assunto
+    sheet.setColumnWidth(5, 120); // Status
+    sheet.setColumnWidth(6, 130); // 1ª Leitura
+    sheet.setColumnWidth(7, 130); // Última Leitura
+    sheet.setColumnWidth(8, 280); // ID (visível)
   }
   
   const dataHora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
-  sheet.appendRow([id, dataHora, email, assunto, status, "", 0]);
+  // Inserção na ordem correta
+  sheet.appendRow([dataHora, destinatarios, empresa, assunto, status, "", "", id]);
 }
 
 function registrarLogBatch(assunto, total, sucessos, erros, detalhesArray) {
@@ -433,7 +459,7 @@ function registrarLogBatch(assunto, total, sucessos, erros, detalhesArray) {
 }
 
 // ====================================================================
-// HELPERS (PREVIEW, ETC)
+// HELPERS
 // ====================================================================
 
 function gerarPreview(htmlEditor, assuntoEditor, index) {
@@ -499,17 +525,23 @@ function processarBlobs(anexosBase64) {
   );
 }
 
-// --- NOVA FUNÇÃO: Helper para converter dados de imagem para Blob Inline ---
 function prepararBlobsInline(listaImagens) {
   if (!listaImagens || listaImagens.length === 0) return {};
-  
   const inlineImages = {};
   listaImagens.forEach(img => {
-    // A chave do objeto deve bater com "cid:xxx" no HTML.
-    // O Blob é criado a partir do Base64 puro.
     const blob = Utilities.newBlob(Utilities.base64Decode(img.data), img.type, img.cid);
     inlineImages[img.cid] = blob;
   });
-  
   return inlineImages;
+}
+
+function getAssinaturaGmail() {
+  try {
+    const response = Gmail.Users.Settings.SendAs.list('me');
+    if (response.sendAs) {
+      const contaPrincipal = response.sendAs.find(account => account.isPrimary);
+      return contaPrincipal ? contaPrincipal.signature : "";
+    }
+    return "";
+  } catch (e) { return ""; }
 }
