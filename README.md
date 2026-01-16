@@ -1,83 +1,145 @@
-# 📧 Auto Email - Sistema de Automação e Rastreamento
+📧 Auto Email - Sistema de Automação e Rastreamento (v2.4)
+O Auto Email é uma solução completa de Mail Merge (envio em massa) integrada ao Google Sheets. Ele permite enviar e-mails personalizados, com anexos e formatação HTML, diretamente da sua planilha, oferecendo um sistema profissional de Rastreamento de Abertura (Pixel) em tempo real.
 
-Sistema profissional de envio de e-mails em massa (Mail Merge) integrado ao Google Sheets e Gmail, agora com **Rastreamento de Abertura em Tempo Real**.
+Desenvolvedor: Ademir Varjão Versão Atual: 2.4
 
-Desenvolvido para facilitar cobranças, comunicados e marketing, permitindo personalização avançada e controle total sobre quem leu suas mensagens.
+🚀 Funcionalidades Principais
+📨 Envio e Personalização
+Substituição de Variáveis: Personalize cada e-mail com dados da planilha (ex: Olá {{ Nome }}, o valor é {{ Valor }}).
 
----
+Editor HTML Rico: Formate textos (negrito, cor, listas), insira links e imagens diretamente no corpo do e-mail.
 
-## 🚀 Funcionalidades Principais
+Imagens Inline: Suporte completo para imagens no corpo do e-mail (com redimensionamento automático para evitar erros no Outlook/Gmail).
 
-* **Envio Personalizado:** Substituição automática de variáveis (ex: `{{ Nome }}`, `{{ Valor }}`) no corpo e no assunto.
-* **Editor HTML Visual:** Crie e formate e-mails com facilidade, sem precisar saber código.
-* **Gestão de Templates:** Salve seus modelos de e-mail favoritos para reutilizar depois.
-* **Anexos Múltiplos:** Envie arquivos PDF, imagens ou documentos junto com o e-mail.
-* **Cópia (CC) Automática:** Defina e-mails em cópia global ou por linha.
-* **🆕 Rastreamento de Leitura (Pixel):** Saiba exatamente **quem abriu** o e-mail e **quando**.
-* **🆕 Relatórios Detalhados:**
-    * `📊 Relatório de Envios`: Resumo geral de sucesso/falha.
-    * `📊 Rastreamento Detalhado`: Lista individual com status de leitura em tempo real.
+Múltiplos Destinatários: Suporta múltiplos e-mails na mesma célula (separados por vírgula ou ponto e vírgula) e Cópia (CC) global.
 
----
+📎 Anexos e Arquivos
+Upload de Anexos: Envie PDFs, documentos ou imagens como anexo para toda a lista.
 
-## 🛠️ Instalação e Configuração
+Importação de Assinatura: Puxa automaticamente a assinatura configurada no seu Gmail principal.
 
-### 1. Preparar a Planilha
-1. Abra sua planilha no Google Sheets.
-2. Vá em **Extensões** > **Apps Script**.
-3. Copie o código do arquivo `main.js` (ou `Code.gs`) deste projeto e cole no editor.
-4. Crie um arquivo HTML no editor chamado `Painel.html` e cole o código do painel (frontend).
+📊 Gestão e Rastreamento
+Rastreamento de Leitura (Pixel): Saiba exatamente quem abriu o e-mail e quantas vezes.
 
-### 2. Ativar o Rastreamento (⚠️ Passo Obrigatório)
-Para que a confirmação de leitura funcione, você precisa publicar o script como um App da Web:
+Relatórios Automáticos:
 
-1. No editor de script, clique no botão azul **Implantar** (canto superior direito) > **Nova implantação**.
-2. Clique no ícone de engrenagem e selecione **App da Web**.
-3. Preencha as configurações:
-    * **Descrição:** `Auto Email Rastreamento`
-    * **Executar como:** `Eu` (seu e-mail).
-    * **Quem pode acessar:** `Qualquer pessoa` (Essencial para o pixel funcionar).
-4. Clique em **Implantar** e autorize o acesso.
-5. Pronto! Não é preciso copiar a URL, o sistema detecta automaticamente.
+Gera a aba 📊 Relatório de Envios com resumo de sucessos e falhas.
 
----
+Gera a aba 📊 Rastreamento Detalhado que atualiza o status para "LIDO / ABERTO" em tempo real.
 
-## 📋 Como Usar
+Respeito a Filtros: O sistema envia apenas para as linhas visíveis na planilha. Se você filtrar a planilha, o envio obedece o filtro.
 
-1.  **Organize seus Dados:**
-    * Na primeira linha da planilha, coloque os cabeçalhos (ex: `Nome`, `Email`, `Vencimento`).
-    * **Importante:** Deve haver uma coluna com o nome `Email`, `E-mail` ou `E mail`.
+Templates Salvos: Crie, salve, carregue e edite modelos de e-mail para uso recorrente.
 
-2.  **Abra o Painel:**
-    * Atualize a planilha (F5).
-    * No menu superior, clique em **Auto Email** > **📧 Abrir Painel de Envio**.
+🛠️ Instalação Passo a Passo
+Para que o sistema funcione 100% (especialmente o rastreamento), siga estes passos:
 
-3.  **Escreva e Envie:**
-    * Escreva seu e-mail usando o editor.
-    * Use variáveis clicando nos botões acima do editor (ex: `{{ Nome }}`).
-    * Faça um **Teste de Envio** para seu próprio e-mail.
-    * Clique em **Enviar E-mails** para disparar para toda a lista filtrada/visível.
+1. Configuração do Script
+Abra sua planilha no Google Sheets.
 
-4.  **Acompanhe os Resultados:**
-    * Após o envio, uma nova aba `📊 Rastreamento Detalhado` será criada.
-    * Acompanhe por lá quem já abriu (o status mudará para **LIDO / ABERTO** em azul).
+No menu superior, vá em Extensões > Apps Script.
 
----
+Arquivo de Código:
 
-## ❓ Perguntas Frequentes
+Apague qualquer código que esteja no arquivo Código.gs (ou Code.gs).
 
-**O rastreamento é 100% preciso?**
-O rastreamento usa uma tecnologia padrão de mercado (pixel invisível). Ele funciona na maioria dos casos, mas pode não marcar como "Lido" se:
-* O destinatário bloquear o carregamento de imagens no e-mail.
-* O destinatário usar apenas o modo "texto simples".
+Copie o conteúdo do arquivo main deste projeto e cole lá.
 
-**Posso filtrar para quem enviar?**
-Sim! O sistema respeita os filtros da planilha. Se você filtrar a planilha para mostrar apenas 5 pessoas, o e-mail será enviado apenas para essas 5.
+⚠️ Importante: Na linha 16 do código, altere NOME_REMETENTE: 'JR Contabilidade' para o seu nome ou da sua empresa.
 
-**Existe limite de envio?**
-Sim, o Google impõe limites diários (geralmente 500 e-mails/dia para contas @gmail.com gratuitas e 2.000/dia para contas Google Workspace pagas).
+Arquivo de Painel:
 
----
+Clique no + (sinal de mais) ao lado de "Arquivos" > HTML.
 
-## 👨‍💻 Desenvolvedor
-Projeto mantido e atualizado por **Ademir Varjão**.
+Nomeie o arquivo exatamente como Painel.
+
+Copie o conteúdo do arquivo painel deste projeto e cole dentro deste novo arquivo.
+
+2. Ativação do Rastreamento (Deployment)
+Para que o pixel de rastreamento funcione, o script precisa ser publicado na web:
+
+Dentro do editor de Apps Script, clique no botão azul Implantar (canto superior direito) > Nova implantação.
+
+Clique no ícone de engrenagem (Configurações) e escolha App da Web.
+
+Preencha exatamente assim:
+
+Descrição: Auto Email v2.4
+
+Executar como: Eu (seu e-mail).
+
+Quem pode acessar: Qualquer pessoa (Isso é obrigatório para o pixel carregar sem login).
+
+Clique em Implantar.
+
+O Google pedirá permissão. Clique em Autorizar acesso, escolha sua conta e, se aparecer "App não verificado", clique em Avançado > Acessar (nome do projeto).
+
+Pronto! Pode fechar a janela da URL (o script a detecta automaticamente).
+
+📋 Como Utilizar
+1. Preparação da Planilha
+Sua planilha deve ter uma linha de cabeçalho na linha 1.
+
+Coluna Obrigatória: Você deve ter uma coluna chamada Email, E-mail ou E mail.
+
+Dados: Preencha as linhas abaixo com os dados dos clientes.
+
+2. Abrindo o Sistema
+Atualize a página da planilha (F5).
+
+Aguarde alguns segundos até aparecer o menu Auto Email na barra superior.
+
+Clique em Auto Email > 📧 Abrir Painel de Envio.
+
+3. Criando o E-mail
+Variáveis: Clique nos botões cinza (ex: {{ Nome }}) para inserir dados da planilha no texto.
+
+Anexos: Use o botão "Adicionar Arquivo" para anexar PDFs ou imagens.
+
+Imagens no Corpo: Você pode colar imagens (Ctrl+V) ou usar o botão de imagem. Clique na imagem para redimensionar.
+
+4. Teste e Envio
+Clique em 🧪 Enviar Teste para mandar uma cópia para você mesmo (o teste usa os dados da 1ª linha da planilha).
+
+Se estiver tudo certo, clique em Disparar Emails.
+
+O sistema pedirá confirmação e mostrará o progresso.
+
+⚙️ Configurações Avançadas
+No início do arquivo main.gs (ou Code.gs), você pode alterar as configurações globais na constante CONFIG:
+
+JavaScript
+
+const CONFIG = {
+  // ...
+  NOME_REMETENTE: 'Seu Nome Aqui', // Nome que aparece para quem recebe
+  DELAY_ENVIO_MS: 1500,            // Pausa entre envios (evita bloqueio do Gmail)
+  // ...
+};
+❓ Solução de Problemas (Troubleshooting)
+1. O Rastreamento não está marcando como "Lido"
+
+Verifique se você implantou como App da Web.
+
+Verifique se a permissão de acesso foi definida como "Qualquer pessoa". Se estiver como "Apenas eu", o pixel não carrega para o destinatário.
+
+Lembre-se: Se o destinatário não baixar as imagens do e-mail, o rastreamento não funciona.
+
+2. As variáveis {{ Nome }} não são substituídas
+
+Verifique se o nome do cabeçalho na planilha é exatamente igual ao que está entre chaves (diferencia maiúsculas de minúsculas e espaços).
+
+Use os botões de "chips" no painel lateral para garantir a grafia correta.
+
+3. Erro "Google hasn't verified this app"
+
+Isso é normal em scripts pessoais. Clique em "Advanced" (Avançado) e depois em "Go to... (unsafe)" para prosseguir.
+
+4. Limites de Envio
+
+Contas Gmail gratuitas (@gmail.com): ~500 e-mails/dia.
+
+Contas Google Workspace (empresariais): ~2.000 e-mails/dia.
+
+📝 Licença
+Este projeto (sua versão recente e anteriores) é de uso restrito, disponibilizado somente mediante a autorização do desenvolvedor. Desenvolvido por Ademir Varjão.
