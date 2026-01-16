@@ -3,7 +3,7 @@
  * AUTO EMAIL - Sistema de Automação de Emails
  * ====================================================================
  * @author Ademir Varjão
- * @version 2.4a
+ * @version 2.4b
  * ====================================================================
  */
 
@@ -47,7 +47,6 @@ function registrarAbertura(id) {
   if (!sheet) return;
 
   const dados = sheet.getDataRange().getValues();
-  
   // Mapeamento das colunas (Baseado no layout fixo: A=0... H=7)
   // 0:Data Envio | 1:Destinatário | 2:Empresa | 3:Assunto | 4:Status | 5:1ª Leitura | 6:Ult Leitura | 7:ID
   const COL_ID = 7; 
@@ -142,7 +141,7 @@ function getSheetDataComFiltro() {
   const range = sheet.getDataRange();
   const values = range.getValues();
   if (!sheet.getFilter()) return values;
-  
+
   const visibleData = [];
   const startRow = range.getRow();
   visibleData.push(values[0]); 
@@ -156,8 +155,18 @@ function getSheetDataComFiltro() {
 }
 
 // ====================================================================
-// GESTÃO DE TEMPLATES
+// GESTÃO DE TEMPLATES (ATUALIZADO: HÍBRIDO DRIVE + PLANILHA)
 // ====================================================================
+
+function getPastaTemplates() {
+  const NOME_PASTA = "Templates AutoEmail (Sistema)";
+  const pastas = DriveApp.getFoldersByName(NOME_PASTA);
+  if (pastas.hasNext()) {
+    return pastas.next();
+  } else {
+    return DriveApp.createFolder(NOME_PASTA);
+  }
+}
 
 function salvarNovoTemplate(nome, assunto, html) {
   try {
@@ -166,7 +175,7 @@ function salvarNovoTemplate(nome, assunto, html) {
     
     if (!sheet) {
       sheet = ss.insertSheet(CONFIG.ABA_TEMPLATES);
-      sheet.appendRow(['Nome', 'Assunto', 'HTML', 'Data Atualização']);
+      sheet.appendRow(['Nome', 'Assunto', 'Conteudo', 'Data Atualização']);
       sheet.getRange("A1:D1").setFontWeight("bold");
       sheet.setColumnWidth(3, 50);
       sheet.hideSheet();
@@ -174,21 +183,42 @@ function salvarNovoTemplate(nome, assunto, html) {
 
     const dados = sheet.getDataRange().getValues();
     let linhaParaAtualizar = -1;
+    let conteudoAntigo = "";
+
     for (let i = 1; i < dados.length; i++) {
       if (dados[i][0] === nome) { 
         linhaParaAtualizar = i + 1;
+        conteudoAntigo = String(dados[i][2]);
         break; 
       }
     }
 
+    // Estratégia Híbrida: Se > 45k chars, salva no Drive
+    let conteudoFinal = html;
+    
+    if (html.length > 45000) {
+      const pasta = getPastaTemplates();
+      const arquivo = pasta.createFile(`Template_${nome}.html`, html, MimeType.HTML);
+      conteudoFinal = "DRIVE:" + arquivo.getId();
+    }
+
+    // Limpeza de arquivo antigo se existir
+    if (linhaParaAtualizar > 0 && conteudoAntigo.startsWith("DRIVE:")) {
+      try {
+        const idAntigo = conteudoAntigo.split(":")[1];
+        DriveApp.getFileById(idAntigo).setTrashed(true);
+      } catch(e) { /* arquivo já não existe */ }
+    }
+
     const timestamp = new Date();
     if (linhaParaAtualizar > 0) {
-      sheet.getRange(linhaParaAtualizar, 2, 1, 3).setValues([[assunto, html, timestamp]]);
+      sheet.getRange(linhaParaAtualizar, 2, 1, 3).setValues([[assunto, conteudoFinal, timestamp]]);
       return { success: true, message: `Template "${nome}" atualizado com sucesso!` };
     } else {
-      sheet.appendRow([nome, assunto, html, timestamp]);
+      sheet.appendRow([nome, assunto, conteudoFinal, timestamp]);
       return { success: true, message: `Template "${nome}" salvo com sucesso!` };
     }
+
   } catch (e) { 
     console.error(e);
     return { success: false, message: `Erro ao salvar: ${e.message}` };
@@ -199,7 +229,7 @@ function listarMeusTemplates() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(CONFIG.ABA_TEMPLATES);
   if (!sheet) return [];
-  return dados = sheet.getDataRange().getValues().slice(1).map(row => row[0]).filter(nome => nome);
+  return sheet.getDataRange().getValues().slice(1).map(row => row[0]).filter(nome => nome);
 }
 
 function carregarTemplateEspecifico(nome) {
@@ -211,12 +241,25 @@ function carregarTemplateEspecifico(nome) {
     
     const dados = sheet.getDataRange().getValues();
     const templateRow = dados.find(row => String(row[0]).trim() === String(nome).trim());
+    
     if (templateRow) {
+      let corpo = String(templateRow[2] || '');
+
+      // Recupera do Drive se for o caso
+      if (corpo.startsWith("DRIVE:")) {
+        try {
+          const id = corpo.split(":")[1];
+          corpo = DriveApp.getFileById(id).getBlob().getDataAsString();
+        } catch (err) {
+          corpo = "<p style='color:red'>Erro: O arquivo deste template foi deletado do Google Drive.</p>";
+        }
+      }
+
       return {
         success: true,
         message: 'Template carregado',
         assunto: String(templateRow[1] || ''),
-        corpo: String(templateRow[2] || '')
+        corpo: corpo
       };
     }
     return { success: false, message: 'Template não encontrado' };
@@ -234,6 +277,16 @@ function excluirTemplate(nome) {
   const dados = sheet.getDataRange().getValues();
   for (let i = 1; i < dados.length; i++) {
     if (dados[i][0] === nome) { 
+      const conteudo = String(dados[i][2]);
+      
+      // Deleta do Drive também
+      if (conteudo.startsWith("DRIVE:")) {
+        try {
+          const id = conteudo.split(":")[1];
+          DriveApp.getFileById(id).setTrashed(true);
+        } catch(e) {}
+      }
+
       sheet.deleteRow(i + 1);
       return { success: true }; 
     }
@@ -251,6 +304,7 @@ function enviarEmailTeste(html, assunto, destinatario, anexosBase64, imagensInli
     const dados = getSheetDataComFiltro();
     let corpoFinal = html;
     let assuntoFinal = assunto;
+    
     if (dados.length > 1) {
       const cabecalhos = dados[0];
       const linhaTeste = dados[1];
@@ -259,11 +313,12 @@ function enviarEmailTeste(html, assunto, destinatario, anexosBase64, imagensInli
     }
 
     const htmlTeste = `${corpoFinal}<br><br><hr><p style="color:#666; font-size:11px; font-family:sans-serif;">⚠️ [MODO TESTE] Exemplo com dados da 1ª linha visível.</p>`;
+    
     const options = {
       htmlBody: htmlTeste,
       name: CONFIG.NOME_REMETENTE
     };
-    
+
     if (anexosBase64 && anexosBase64.length > 0) {
       options.attachments = processarBlobs(anexosBase64);
     }
@@ -287,9 +342,8 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
     
     // --- BLINDAGEM 1: Verificação de Cota Diária ---
     const cotaRestante = MailApp.getRemainingDailyQuota();
-    // Subtraímos 1 da contagem pois a primeira linha é cabeçalho
-    const quantidadeEnvio = dados.length - 1; 
-    
+    const quantidadeEnvio = dados.length - 1; // Subtraímos 1 da contagem pois a primeira linha é cabeçalho
+
     if (cotaRestante < quantidadeEnvio) {
       return { 
         success: false, 
@@ -308,7 +362,7 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
     const indexEmail = identificarColunaEmail(cabecalhos);
     // Busca dinâmica pela coluna de empresa
     const indexEmpresa = cabecalhos.findIndex(h => /^(empresa|raz[aã]o\s?social|cliente)$/i.test(String(h).trim()));
-
+    
     if (indexEmail === -1) return { success: false, message: 'Erro: Coluna "Email" ou "E-mail" não encontrada.' };
     
     const ccGlobalArray = (ccGlobalString && ccGlobalString.trim() !== "") 
@@ -327,7 +381,7 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
     let sucesso = 0;
     let erro = 0;
     const listaErros = [];
-
+    
     // --- BLINDAGEM 2: Loop For (mais seguro para interrupção) ---
     for (let i = 0; i < linhas.length; i++) {
       const linha = linhas[i];
@@ -335,7 +389,7 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
         const celulaEmail = String(linha[indexEmail]);
         // Divide por ; ou , e limpa espaços
         const emailsDaLinha = celulaEmail.split(/[;,]/).map(e => e.trim()).filter(isValidEmail);
-
+        
         if (emailsDaLinha.length > 0) {
           const emailPara = emailsDaLinha[0];
           const ccDaLinha = emailsDaLinha.slice(1);
@@ -357,13 +411,13 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
             htmlBody: corpo, 
             name: CONFIG.NOME_REMETENTE 
           };
-
+          
           if (ccFinal.length > 0) options.cc = ccFinal.join(',');
           if (arquivosBlobs.length > 0) options.attachments = arquivosBlobs;
           if (Object.keys(mapImagensInline).length > 0) options.inlineImages = mapImagensInline;
 
           GmailApp.sendEmail(emailPara, assunto, 'Email em formato HTML.', options);
-
+          
           if (trackingId) {
             const todosDestinatarios = [emailPara, ...ccFinal].join('; ');
             registrarEnvioIndividual(trackingId, todosDestinatarios, nomeEmpresa, assunto, "ENVIADO");
@@ -377,11 +431,11 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
         }
 
         if (i % 5 === 0) ss.toast(`Progresso: ${Math.round(((i+1)/totalLinhas)*100)}%`, '🚀 Enviando...', 3);
-
+        
       } catch (e) { 
         erro++; 
         listaErros.push(`Linha ${i+2}: ${e.message}`);
-
+        
         // --- BLINDAGEM 3: Interrupção se atingir limite do Gmail no meio do processo ---
         if (String(e).includes("Limit Exceeded") || String(e).includes("too many times")) {
            listaErros.push("⚠️ ERRO CRÍTICO: Limite do Gmail atingido. Parando envios imediatamente.");
@@ -408,7 +462,7 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
 }
 
 // ====================================================================
-// FUNÇÕES DE LOG E RASTREAMENTO (LAYOUT CORRIGIDO)
+// FUNÇÕES DE LOG E RASTREAMENTO
 // ====================================================================
 
 function registrarEnvioIndividual(id, destinatarios, empresa, assunto, status) {
@@ -441,6 +495,7 @@ function registrarEnvioIndividual(id, destinatarios, empresa, assunto, status) {
 function registrarLogBatch(assunto, total, sucessos, erros, detalhesArray) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(CONFIG.ABA_RELATORIO);
+  
   if (!sheet) { 
     sheet = ss.insertSheet(CONFIG.ABA_RELATORIO);
     const headers = ['Data/Hora', 'Assunto do Email', 'Total', 'Sucesso', 'Falhas', 'Detalhes dos Erros'];
@@ -466,10 +521,12 @@ function gerarPreview(htmlEditor, assuntoEditor, index) {
   try {
     const dados = getSheetDataComFiltro();
     if (!dados || dados.length < 2) return { error: 'Nenhuma linha de dados disponível para visualização.' };
+    
     const maxIndex = dados.length - 2;
     const safeIndex = Math.max(0, Math.min(index, maxIndex));
     const cabecalhos = dados[0];
     const linha = dados[safeIndex + 1]; 
+    
     const indexEmail = identificarColunaEmail(cabecalhos);
     const celulaEmail = (indexEmail !== -1) ? String(linha[indexEmail]) : "";
     const emails = celulaEmail.split(/[;,]/).map(e => e.trim());
@@ -490,10 +547,12 @@ function gerarPreview(htmlEditor, assuntoEditor, index) {
 function personalizarTexto(texto, cabecalhos, linha) {
   if (!texto) return "";
   const mapaColunas = {};
+  
   cabecalhos.forEach((header, index) => {
     const chaveLimpa = String(header).replace(/<[^>]+>/g, "").trim().toLowerCase();
     mapaColunas[chaveLimpa] = index;
   });
+
   return texto.replace(/\{\{([\s\S]+?)\}\}/g, (match, conteudo) => {
     const chave = conteudo.replace(/<[^>]+>/g, "").replace(/&nbsp;/gi, " ").trim().toLowerCase();
     const index = mapaColunas[chave];
