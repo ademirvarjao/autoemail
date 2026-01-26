@@ -3,7 +3,7 @@
  * AUTO EMAIL - Sistema de Automação de Emails
  * ====================================================================
  * @author Ademir Varjão
- * @version 2.4b
+ * @version 2.4c
  * ====================================================================
  */
 
@@ -16,12 +16,14 @@ const CONFIG = {
   ABA_RELATORIO: '📊 Relatório de Envios',
   ABA_RASTREAMENTO: '📊 Rastreamento Detalhado',
   NOME_REMETENTE: 'JR Contabilidade', 
-  DELAY_ENVIO_MS: 1500, // Tempo entre envios para evitar bloqueio de spam
+  DELAY_ENVIO_MS: 1500,
   CORES_LOG: {
     SUCESSO: '#d9ead3',
     ERRO: '#f4cccc',
     ABERTO: '#c9daf8'
-  }
+  },
+  // ADICIONE ESTA LINHA ABAIXO COM O SEU LINK DA IMPLANTAÇÃO:
+  URL_WEB_APP: "https://script.google.com/macros/s/AKfycbx3pqOOFQ4M4tUKk2wbqWpi2awcpJZO7qExcuUPjO-2aaYBQfeDPvKNhs9Q0L5d1y7HqA/exec"
 };
 
 // ====================================================================
@@ -110,7 +112,7 @@ function abrirPainel() {
 
 function mostrarUrlRastreamento() {
   try {
-    const url = ScriptApp.getService().getUrl();
+    const url = CONFIG.URL_WEB_APP;
     if (url) {
       Browser.msgBox("Status do Rastreamento", `O sistema está configurado corretamente.\nURL do Web App: ${url}`, Browser.Buttons.OK);
     } else {
@@ -352,8 +354,7 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
     }
     // ------------------------------------------------
 
-    let trackingUrl = null;
-    try { trackingUrl = ScriptApp.getService().getUrl(); } catch(e) {}
+    let trackingUrl = CONFIG.URL_WEB_APP;
     
     const cabecalhos = dados[0];
     const linhas = dados.slice(1);
