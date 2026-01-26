@@ -551,7 +551,7 @@
     // UI HELPER
     const toggleLoad = (show) => document.getElementById('loading').style.display = show ? 'flex' : 'none';
     function mostrarSobre() {
-      alert("Auto Email v2.4\n\nProjeto original de: Ademir Varjão\nAtualizado 2026");
+      alert("Auto Email v2.4c\n\nProjeto original de: Ademir Varjão\nAtualizado 2026");
     }
 
     // EDITOR FUNCTIONS
