@@ -1,13 +1,13 @@
-# 📧 Auto Email - Sistema de Automação e Rastreamento (v2.4b)
+# 📧 Auto Email - Sistema de Automação e Rastreamento (v2.4c)
 
 O **Auto Email** é uma solução completa de Mail Merge (envio em massa) integrada ao Google Sheets. Ele permite enviar e-mails personalizados, com anexos e formatação HTML, diretamente da sua planilha, oferecendo um sistema profissional de Rastreamento de Abertura (Pixel) em tempo real.
 
 **Desenvolvedor:** Ademir Varjão  
-**Versão Atual:** 2.4b
+**Versão Atual:** 2.4c
 
 ---
 
-## 🚀 Novidades da Versão 2.4b
+## 🚀 Novidades da Versão 2.4c
 
 * **💾 Armazenamento Híbrido Inteligente:** O sistema agora detecta automaticamente se um template é muito pesado (muitas imagens/texto) para o Google Sheets. Se for, ele salva o conteúdo no **Google Drive** e deixa apenas uma referência na planilha. Isso elimina o erro de limite de 50.000 caracteres por célula!
 * **✏️ Editor Melhorado:** Novas ferramentas de **Alinhamento** (Justificado, Centro, etc.), **Cor do Texto**, **Listas** e **Links**.
@@ -47,7 +47,7 @@ Para que o sistema funcione 100% (especialmente o rastreamento e o armazenamento
 2.  No menu superior, vá em **Extensões > Apps Script**.
 3.  **Arquivo de Código:**
     * Apague qualquer código que esteja no arquivo `Código.gs` (ou `Code.gs`).
-    * Copie o conteúdo do arquivo `main` (versão 2.4b) deste projeto e cole lá.
+    * Copie o conteúdo do arquivo `main` (versão 2.4c) deste projeto e cole lá.
     * ⚠️ **Importante:** Na linha 16 do código, altere `NOME_REMETENTE: 'JR Contabilidade'` para o seu nome.
 4.  **Arquivo de Painel:**
     * Clique no `+` (sinal de mais) ao lado de "Arquivos" > **HTML**.
@@ -60,12 +60,12 @@ Para que o pixel de rastreamento funcione, o script precisa ser publicado na web
 1.  Dentro do editor de Apps Script, clique no botão azul **Implantar** (canto superior direito) > **Nova implantação**.
 2.  Clique no ícone de engrenagem (Configurações) e escolha **App da Web**.
 3.  Preencha exatamente assim:
-    * **Descrição:** Auto Email v2.4b
+    * **Descrição:** Auto Email v2.4c
     * **Executar como:** Eu (seu e-mail).
     * **Quem pode acessar:** Qualquer pessoa (Isso é obrigatório para o pixel carregar sem login).
 4.  Clique em **Implantar**.
 5.  O Google pedirá permissão. Clique em **Autorizar acesso**, escolha sua conta e, se aparecer "App não verificado", clique em **Avançado > Acessar (nome do projeto)**.
-    * *Nota:* Na versão 2.4b, ele pedirá permissão também para gerenciar arquivos no **Google Drive** (para salvar os templates).
+    * *Nota:* Na versão 2.4c, ele pedirá permissão também para gerenciar arquivos no **Google Drive** (para salvar os templates).
 
 ---
 
@@ -96,7 +96,7 @@ Para que o pixel de rastreamento funcione, o script precisa ser publicado na web
 ## ❓ Solução de Problemas (Troubleshooting)
 
 **1. Erro "A entrada contém mais que o limite máximo de 50000 caracteres"**
-* **Solução:** Certifique-se de que está usando a **versão 2.4b** do arquivo `main`. Esta versão salva templates grandes no Drive automaticamente para evitar esse erro.
+* **Solução:** Certifique-se de que está usando a **versão 2.4c** do arquivo `main`. Esta versão salva templates grandes no Drive automaticamente para evitar esse erro.
 
 **2. O Rastreamento não está marcando como "Lido"**
 * Verifique se implantou como **App da Web** e definiu o acesso como **"Qualquer pessoa"**.
