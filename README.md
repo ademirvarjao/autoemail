@@ -65,7 +65,7 @@ Para que o pixel de rastreamento funcione, o script precisa ser publicado na web
     * **Quem pode acessar:** Qualquer pessoa (Isso é obrigatório para o pixel carregar sem login).
 4.  Clique em **Implantar**.
 5.  O Google pedirá permissão. Clique em **Autorizar acesso**, escolha sua conta e, se aparecer "App não verificado", clique em **Avançado > Acessar (nome do projeto)**.
-    * *Nota:* Na versão 2.4c, ele pedirá permissão também para gerenciar arquivos no **Google Drive** (para salvar os templates).
+    * *Nota:* Na versão 2.4c, ele pedirá permissão também para gerenciar arquivos no **Google Drive** (para salvar os templates). Troque a url do código pela url da implantação para funcionar.
 
 ---
 
