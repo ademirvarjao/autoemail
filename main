@@ -3,7 +3,7 @@
  * AUTO EMAIL - Sistema de Automação de Emails
  * ====================================================================
  * @author Ademir Varjão
- * @version 3.0
+ * @version 3.2
  * ====================================================================
  */
 
@@ -15,7 +15,7 @@ const CONFIG = {
   ABA_TEMPLATES: '💾 Meus Templates',
   ABA_RELATORIO: '📊 Relatório de Envios',
   ABA_RASTREAMENTO: '📊 Rastreamento Detalhado',
-  ABA_DADOS: '',
+  ABA_DADOS: 'Contatos',
   NOME_REMETENTE: 'JR Contabilidade', 
   DELAY_ENVIO_MS: 1500,
   MISSING_VAR_FALLBACK: '',
@@ -25,7 +25,7 @@ const CONFIG = {
     ABERTO: '#c9daf8'
   },
   // ADICIONE ESTA LINHA ABAIXO COM O SEU LINK DA IMPLANTAÇÃO:
-  URL_WEB_APP: "https://script.google.com/macros/s/AKfycbx3pqOOFQ4M4tUKk2wbqWpi2awcpJZO7qExcuUPjO-2aaYBQfeDPvKNhs9Q0L5d1y7HqA/exec"
+  URL_WEB_APP: "https://script.google.com/macros/s/AKfycbwm5zzO0ywGL2LUZiriyLU4gdT4BOqKrLgSva7AxZbiqhnPu01Yn0XcyeufhO2-0pNmzw/exec"
 };
 
 // ====================================================================
@@ -41,7 +41,6 @@ function doGet(e) {
   } catch (err) {
     console.error("Erro no rastreamento: " + err);
   }
-  // Retorna pixel transparente 1x1 (sem dependência externa)
   const pixelBase64 = "R0lGODlhAQABAPAAAAAAAAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==";
   return HtmlService.createHtmlOutput(`<img src="data:image/gif;base64,${pixelBase64}" alt="" />`);
 }
@@ -50,8 +49,7 @@ function registrarAbertura(id) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(CONFIG.ABA_RASTREAMENTO);
   if (!sheet) return;
-  // Mapeamento das colunas (Baseado no layout fixo: A=0... H=7)
-  // 0:Data Envio | 1:Destinatário | 2:Empresa | 3:Assunto | 4:Status | 5:1ª Leitura | 6:Ult Leitura | 7:ID
+  
   const COL_ID = 7; 
   const COL_STATUS = 4;
   const COL_1_LEITURA = 5;
@@ -59,15 +57,12 @@ function registrarAbertura(id) {
 
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return;
-
   const idRange = sheet.getRange(2, COL_ID + 1, lastRow - 1, 1);
   const encontrado = idRange.createTextFinder(String(id)).matchEntireCell(true).findNext();
   if (!encontrado) return;
-
   const linha = encontrado.getRow();
   const dataAgora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
   const primeiraLeitura = sheet.getRange(linha, COL_1_LEITURA + 1).getValue();
-
   if (!primeiraLeitura || primeiraLeitura === "") {
     sheet.getRange(linha, COL_1_LEITURA + 1).setValue(dataAgora);
   }
@@ -99,13 +94,13 @@ function ocultarAbaTemplates() {
 }
 
 function abrirPainel() {
-  const template = HtmlService.createTemplateFromFile('Painel');
+  const template = HtmlService.createTemplateFromFile('painel');
   template.userEmail = Session.getActiveUser().getEmail();
   const html = template.evaluate()
     .setWidth(1150)
     .setHeight(850)
     .setTitle('📧 Editor e Envio');
-  SpreadsheetApp.getUi().showModalDialog(html, 'Painel de Envio e Editor');
+  SpreadsheetApp.getUi().showModalDialog(html, 'Auto Email');
 }
 
 function mostrarUrlRastreamento() {
@@ -141,7 +136,6 @@ function getSheetDataComFiltro() {
   const range = sheet.getDataRange();
   const values = range.getValues();
   if (!sheet.getFilter()) return values;
-
   const visibleData = [];
   const startRow = range.getRow();
   visibleData.push(values[0]); 
@@ -164,7 +158,7 @@ function getSheetDados() {
 }
 
 // ====================================================================
-// GESTÃO DE TEMPLATES (ATUALIZADO: HÍBRIDO DRIVE + PLANILHA)
+// GESTÃO DE TEMPLATES (HÍBRIDO DRIVE + PLANILHA)
 // ====================================================================
 
 function getPastaTemplates() {
@@ -177,11 +171,10 @@ function getPastaTemplates() {
   }
 }
 
-function salvarNovoTemplate(nome, assunto, html) {
+function salvarNovoTemplate(nomeOriginal, nomeNovo, assunto, html) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let sheet = ss.getSheetByName(CONFIG.ABA_TEMPLATES);
-    
     if (!sheet) {
       sheet = ss.insertSheet(CONFIG.ABA_TEMPLATES);
       sheet.appendRow(['Nome', 'Assunto', 'Conteudo', 'Data Atualização']);
@@ -193,46 +186,73 @@ function salvarNovoTemplate(nome, assunto, html) {
     const dados = sheet.getDataRange().getValues();
     let linhaParaAtualizar = -1;
     let conteudoAntigo = "";
+    
+    const chaveBusca = nomeOriginal ? nomeOriginal : nomeNovo;
 
     for (let i = 1; i < dados.length; i++) {
-      if (dados[i][0] === nome) { 
+      if (dados[i][0] === chaveBusca) { 
         linhaParaAtualizar = i + 1;
         conteudoAntigo = String(dados[i][2]);
         break; 
       }
     }
 
-    // Estratégia Híbrida: Se > 45k chars, salva no Drive
     let conteudoFinal = html;
-    
     if (html.length > 45000) {
       const pasta = getPastaTemplates();
-      const nomeSeguro = sanitizeFileName(nome);
+      const nomeSeguro = sanitizeFileName(nomeNovo);
       const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd_HHmmss");
       const arquivo = pasta.createFile(`Template_${nomeSeguro}_${timestamp}.html`, html, MimeType.HTML);
       conteudoFinal = "DRIVE:" + arquivo.getId();
     }
 
-    // Limpeza de arquivo antigo se existir
     if (linhaParaAtualizar > 0 && conteudoAntigo.startsWith("DRIVE:")) {
       try {
         const idAntigo = conteudoAntigo.split(":")[1];
         DriveApp.getFileById(idAntigo).setTrashed(true);
-      } catch(e) { /* arquivo já não existe */ }
+      } catch(e) { }
     }
 
-    const timestamp = new Date();
+    const timestampData = new Date();
     if (linhaParaAtualizar > 0) {
-      sheet.getRange(linhaParaAtualizar, 2, 1, 3).setValues([[assunto, conteudoFinal, timestamp]]);
-      return { success: true, message: `Template "${nome}" atualizado com sucesso!` };
+      sheet.getRange(linhaParaAtualizar, 1, 1, 4).setValues([[nomeNovo, assunto, conteudoFinal, timestampData]]);
+      return { success: true, message: `Template "${nomeNovo}" atualizado com sucesso!` };
     } else {
-      sheet.appendRow([nome, assunto, conteudoFinal, timestamp]);
-      return { success: true, message: `Template "${nome}" salvo com sucesso!` };
+      sheet.appendRow([nomeNovo, assunto, conteudoFinal, timestampData]);
+      return { success: true, message: `Template "${nomeNovo}" salvo com sucesso!` };
     }
 
   } catch (e) { 
     console.error(e);
     return { success: false, message: `Erro ao salvar: ${e.message}` };
+  }
+}
+
+function renomearTemplateBackend(nomeAntigo, nomeNovo) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(CONFIG.ABA_TEMPLATES);
+    if (!sheet) throw new Error('Base de templates não encontrada.');
+    
+    const dados = sheet.getDataRange().getValues();
+    
+    // Verifica se já existe um template com o novo nome
+    const existe = dados.some((row, index) => index > 0 && String(row[0]).trim() === nomeNovo.trim());
+    if (existe) {
+       return { success: false, message: "Já existe um template com esse nome." };
+    }
+
+    // Busca e renomeia
+    for (let i = 1; i < dados.length; i++) {
+      if (String(dados[i][0]).trim() === String(nomeAntigo).trim()) { 
+        sheet.getRange(i + 1, 1).setValue(nomeNovo);
+        sheet.getRange(i + 1, 4).setValue(new Date()); 
+        return { success: true, message: "Template renomeado com sucesso!" }; 
+      }
+    }
+    return { success: false, message: 'Template original não encontrado.' };
+  } catch (e) {
+    return { success: false, message: e.message };
   }
 }
 
@@ -249,14 +269,10 @@ function carregarTemplateEspecifico(nome) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName(CONFIG.ABA_TEMPLATES);
     if (!sheet) throw new Error('Base de templates não encontrada.');
-    
     const dados = sheet.getDataRange().getValues();
     const templateRow = dados.find(row => String(row[0]).trim() === String(nome).trim());
-    
     if (templateRow) {
       let corpo = String(templateRow[2] || '');
-
-      // Recupera do Drive se for o caso
       if (corpo.startsWith("DRIVE:")) {
         try {
           const id = corpo.split(":")[1];
@@ -289,8 +305,6 @@ function excluirTemplate(nome) {
   for (let i = 1; i < dados.length; i++) {
     if (dados[i][0] === nome) { 
       const conteudo = String(dados[i][2]);
-      
-      // Deleta do Drive também
       if (conteudo.startsWith("DRIVE:")) {
         try {
           const id = conteudo.split(":")[1];
@@ -306,6 +320,62 @@ function excluirTemplate(nome) {
 }
 
 // ====================================================================
+// IMPORTAÇÃO E EXPORTAÇÃO JSON
+// ====================================================================
+
+function exportarTemplatesLista(nomesArray) {
+  try {
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      const sheet = ss.getSheetByName(CONFIG.ABA_TEMPLATES);
+      if (!sheet) return { success: true, data: [] };
+      
+      const dados = sheet.getDataRange().getValues();
+      const templates = [];
+      
+      for(let i = 1; i < dados.length; i++) {
+         const nomeAtual = String(dados[i][0]);
+         
+         if (nomesArray.includes(nomeAtual)) {
+             let corpo = String(dados[i][2]);
+             
+             if(corpo.startsWith("DRIVE:")) {
+                 try {
+                     const id = corpo.split(":")[1];
+                     corpo = DriveApp.getFileById(id).getBlob().getDataAsString();
+                 } catch(e) {
+                     continue; 
+                 }
+             }
+             
+             templates.push({
+                 nome: nomeAtual,
+                 assunto: String(dados[i][1]),
+                 corpo: corpo
+             });
+         }
+      }
+      return { success: true, data: templates };
+  } catch (e) {
+      return { success: false, message: e.message };
+  }
+}
+
+function importarTemplatesGeral(listaTemplates) {
+  try {
+     let adicionados = 0;
+     for(let t of listaTemplates) {
+        if(t.nome && t.corpo) {
+           salvarNovoTemplate(t.nome, t.nome, t.assunto || '', t.corpo);
+           adicionados++;
+        }
+     }
+     return { success: true, message: adicionados + " templates importados com sucesso!" };
+  } catch(e) {
+     return { success: false, message: "Erro na importação: " + e.message };
+  }
+}
+
+// ====================================================================
 // ENVIO E PREVIEW DE EMAILS
 // ====================================================================
 
@@ -315,7 +385,6 @@ function enviarEmailTeste(html, assunto, destinatario, anexosBase64, imagensInli
     const dados = getSheetDataComFiltro();
     let corpoFinal = html;
     let assuntoFinal = assunto;
-    
     if (dados.length > 1) {
       const cabecalhos = dados[0];
       const linhaTeste = dados[1];
@@ -324,12 +393,10 @@ function enviarEmailTeste(html, assunto, destinatario, anexosBase64, imagensInli
     }
 
     const htmlTeste = `${corpoFinal}<br><br><hr><p style="color:#666; font-size:11px; font-family:sans-serif;">⚠️ [MODO TESTE] Exemplo com dados da 1ª linha visível.</p>`;
-    
     const options = {
       htmlBody: htmlTeste,
       name: CONFIG.NOME_REMETENTE
     };
-
     if (anexosBase64 && anexosBase64.length > 0) {
       options.attachments = processarBlobs(anexosBase64);
     }
@@ -349,11 +416,10 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   try {
     const dados = getSheetDataComFiltro();
-    if (!dados || dados.length < 2) return { success: false, message: 'Nenhuma linha visível para envio.' };
+    if (!dados || dados.length < 2) return { success: false, message: 'Nenhuma linha visível para envio.'};
     
-    // --- BLINDAGEM 1: Verificação de Cota Diária ---
     const cotaRestante = MailApp.getRemainingDailyQuota();
-    const quantidadeEnvio = dados.length - 1; // Subtraímos 1 da contagem pois a primeira linha é cabeçalho
+    const quantidadeEnvio = dados.length - 1; 
 
     if (cotaRestante < quantidadeEnvio) {
       return { 
@@ -361,24 +427,20 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
         message: `⛔ OPERAÇÃO CANCELADA POR SEGURANÇA\n\nSua cota diária restante é de: ${cotaRestante} emails.\nVocê tentou enviar para: ${quantidadeEnvio} pessoas.\n\nReduza a lista ou tente amanhã.` 
       };
     }
-    // ------------------------------------------------
 
     let trackingUrl = getTrackingUrl();
-    
     const cabecalhos = dados[0];
     const linhas = dados.slice(1);
     const totalLinhas = linhas.length;
     
     const indexEmail = identificarColunaEmail(cabecalhos);
-    // Busca dinâmica pela coluna de empresa
     const indexEmpresa = cabecalhos.findIndex(h => /^(empresa|raz[aã]o\s?social|cliente)$/i.test(String(h).trim()));
-    
     if (indexEmail === -1) return { success: false, message: 'Erro: Coluna "Email" ou "E-mail" não encontrada.' };
     
     const ccGlobalArray = (ccGlobalString && ccGlobalString.trim() !== "") 
       ? ccGlobalString.split(/[,;]/).map(e => e.trim()).filter(isValidEmail) 
       : [];
-
+      
     const arquivosBlobs = (anexosBase64 && anexosBase64.length > 0) 
       ? processarBlobs(anexosBase64) 
       : [];
@@ -392,24 +454,20 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
     let erro = 0;
     const listaErros = [];
     
-    // --- BLINDAGEM 2: Loop For (mais seguro para interrupção) ---
     for (let i = 0; i < linhas.length; i++) {
       const linha = linhas[i];
       try {
         const celulaEmail = String(linha[indexEmail]);
-        // Divide por ; ou , e limpa espaços
         const emailsDaLinha = celulaEmail.split(/[;,]/).map(e => e.trim()).filter(isValidEmail);
-        
         if (emailsDaLinha.length > 0) {
           const emailPara = emailsDaLinha[0];
           const ccDaLinha = emailsDaLinha.slice(1);
-          const ccFinal = [...new Set([...ccDaLinha, ...ccGlobalArray])]; // Combina sem duplicatas
+          const ccFinal = [...new Set([...ccDaLinha, ...ccGlobalArray])];
 
           let corpo = personalizarTexto(htmlFinal, cabecalhos, linha);
           const assunto = personalizarTexto(assuntoFinal, cabecalhos, linha);
           
           const nomeEmpresa = (indexEmpresa > -1 && linha[indexEmpresa]) ? linha[indexEmpresa] : "-";
-          
           let trackingId = "";
           if (trackingUrl) {
              trackingId = Utilities.getUuid();
@@ -421,13 +479,11 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
             htmlBody: corpo, 
             name: CONFIG.NOME_REMETENTE 
           };
-          
           if (ccFinal.length > 0) options.cc = ccFinal.join(',');
           if (arquivosBlobs.length > 0) options.attachments = arquivosBlobs;
           if (Object.keys(mapImagensInline).length > 0) options.inlineImages = mapImagensInline;
 
           GmailApp.sendEmail(emailPara, assunto, 'Email em formato HTML.', options);
-          
           if (trackingId) {
             const todosDestinatarios = [emailPara, ...ccFinal].join('; ');
             registrarEnvioIndividual(trackingId, todosDestinatarios, nomeEmpresa, assunto, "ENVIADO");
@@ -441,12 +497,9 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
         }
 
         if (i % 5 === 0) ss.toast(`Progresso: ${Math.round(((i+1)/totalLinhas)*100)}%`, '🚀 Enviando...', 3);
-        
       } catch (e) { 
         erro++; 
         listaErros.push(`Linha ${i+2}: ${e.message}`);
-        
-        // --- BLINDAGEM 3: Interrupção se atingir limite do Gmail no meio do processo ---
         if (String(e).includes("Limit Exceeded") || String(e).includes("too many times")) {
            listaErros.push("⚠️ ERRO CRÍTICO: Limite do Gmail atingido. Parando envios imediatamente.");
            break; 
@@ -465,7 +518,6 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
     }
     
     return { success: true, message: msgRetorno };
-
   } catch (e) { 
     return { success: false, message: `Erro Fatal no Processo: ${e.toString()}` };
   }
@@ -481,31 +533,28 @@ function registrarEnvioIndividual(id, destinatarios, empresa, assunto, status) {
   
   if (!sheet) {
     sheet = ss.insertSheet(CONFIG.ABA_RASTREAMENTO);
-    // Ordem estrita solicitada
     const headers = ['Data Envio', 'Destinatário', 'Empresa', 'Assunto', 'Status Atual', 'Data da 1ª Leitura', 'Data da Última Leitura', 'ID'];
     sheet.appendRow(headers);
     sheet.getRange("A1:H1").setFontWeight("bold").setBackground("#c9daf8");
     sheet.setFrozenRows(1);
     
-    sheet.setColumnWidth(1, 130); // Data Envio
-    sheet.setColumnWidth(2, 250); // Destinatário 
-    sheet.setColumnWidth(3, 200); // Empresa
-    sheet.setColumnWidth(4, 250); // Assunto
-    sheet.setColumnWidth(5, 120); // Status
-    sheet.setColumnWidth(6, 130); // 1ª Leitura
-    sheet.setColumnWidth(7, 130); // Última Leitura
-    sheet.setColumnWidth(8, 280); // ID (visível)
+    sheet.setColumnWidth(1, 130); 
+    sheet.setColumnWidth(2, 250); 
+    sheet.setColumnWidth(3, 200); 
+    sheet.setColumnWidth(4, 250); 
+    sheet.setColumnWidth(5, 120); 
+    sheet.setColumnWidth(6, 130); 
+    sheet.setColumnWidth(7, 130); 
+    sheet.setColumnWidth(8, 280); 
   }
   
   const dataHora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
-  // Inserção na ordem correta
   sheet.appendRow([dataHora, destinatarios, empresa, assunto, status, "", "", id]);
 }
 
 function registrarLogBatch(assunto, total, sucessos, erros, detalhesArray) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(CONFIG.ABA_RELATORIO);
-  
   if (!sheet) { 
     sheet = ss.insertSheet(CONFIG.ABA_RELATORIO);
     const headers = ['Data/Hora', 'Assunto do Email', 'Total', 'Sucesso', 'Falhas', 'Detalhes dos Erros'];
@@ -531,7 +580,6 @@ function gerarPreview(htmlEditor, assuntoEditor, index) {
   try {
     const dados = getSheetDataComFiltro();
     if (!dados || dados.length < 2) return { error: 'Nenhuma linha de dados disponível para visualização.' };
-    
     const maxIndex = dados.length - 2;
     const safeIndex = Math.max(0, Math.min(index, maxIndex));
     const cabecalhos = dados[0];
@@ -557,12 +605,10 @@ function gerarPreview(htmlEditor, assuntoEditor, index) {
 function personalizarTexto(texto, cabecalhos, linha) {
   if (!texto) return "";
   const mapaColunas = {};
-  
   cabecalhos.forEach((header, index) => {
     const chaveLimpa = String(header).replace(/<[^>]+>/g, "").trim().toLowerCase();
     mapaColunas[chaveLimpa] = index;
   });
-
   return texto.replace(/\{\{([\s\S]+?)\}\}/g, (match, conteudo) => {
     const chave = conteudo.replace(/<[^>]+>/g, "").replace(/&nbsp;/gi, " ").trim().toLowerCase();
     const index = mapaColunas[chave];
