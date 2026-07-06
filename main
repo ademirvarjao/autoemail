@@ -57,12 +57,15 @@ function registrarAbertura(id) {
 
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return;
+  
   const idRange = sheet.getRange(2, COL_ID + 1, lastRow - 1, 1);
   const encontrado = idRange.createTextFinder(String(id)).matchEntireCell(true).findNext();
   if (!encontrado) return;
+  
   const linha = encontrado.getRow();
   const dataAgora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
   const primeiraLeitura = sheet.getRange(linha, COL_1_LEITURA + 1).getValue();
+  
   if (!primeiraLeitura || primeiraLeitura === "") {
     sheet.getRange(linha, COL_1_LEITURA + 1).setValue(dataAgora);
   }
@@ -82,6 +85,7 @@ function onOpen() {
     .addSeparator()
     .addItem('🛠️ Configurar Rastreamento (1ª vez)', 'mostrarUrlRastreamento')
     .addToUi();
+    
   ocultarAbaTemplates();
 }
 
@@ -96,10 +100,12 @@ function ocultarAbaTemplates() {
 function abrirPainel() {
   const template = HtmlService.createTemplateFromFile('painel');
   template.userEmail = Session.getActiveUser().getEmail();
+  
   const html = template.evaluate()
     .setWidth(1150)
     .setHeight(850)
     .setTitle('📧 Editor e Envio');
+    
   SpreadsheetApp.getUi().showModalDialog(html, 'Auto Email');
 }
 
@@ -136,6 +142,7 @@ function getSheetDataComFiltro() {
   const range = sheet.getDataRange();
   const values = range.getValues();
   if (!sheet.getFilter()) return values;
+  
   const visibleData = [];
   const startRow = range.getRow();
   visibleData.push(values[0]); 
@@ -175,6 +182,7 @@ function salvarNovoTemplate(nomeOriginal, nomeNovo, assunto, html) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let sheet = ss.getSheetByName(CONFIG.ABA_TEMPLATES);
+    
     if (!sheet) {
       sheet = ss.insertSheet(CONFIG.ABA_TEMPLATES);
       sheet.appendRow(['Nome', 'Assunto', 'Conteudo', 'Data Atualização']);
@@ -186,7 +194,6 @@ function salvarNovoTemplate(nomeOriginal, nomeNovo, assunto, html) {
     const dados = sheet.getDataRange().getValues();
     let linhaParaAtualizar = -1;
     let conteudoAntigo = "";
-    
     const chaveBusca = nomeOriginal ? nomeOriginal : nomeNovo;
 
     for (let i = 1; i < dados.length; i++) {
@@ -198,6 +205,7 @@ function salvarNovoTemplate(nomeOriginal, nomeNovo, assunto, html) {
     }
 
     let conteudoFinal = html;
+    
     if (html.length > 45000) {
       const pasta = getPastaTemplates();
       const nomeSeguro = sanitizeFileName(nomeNovo);
@@ -214,6 +222,7 @@ function salvarNovoTemplate(nomeOriginal, nomeNovo, assunto, html) {
     }
 
     const timestampData = new Date();
+    
     if (linhaParaAtualizar > 0) {
       sheet.getRange(linhaParaAtualizar, 1, 1, 4).setValues([[nomeNovo, assunto, conteudoFinal, timestampData]]);
       return { success: true, message: `Template "${nomeNovo}" atualizado com sucesso!` };
@@ -235,19 +244,17 @@ function renomearTemplateBackend(nomeAntigo, nomeNovo) {
     if (!sheet) throw new Error('Base de templates não encontrada.');
     
     const dados = sheet.getDataRange().getValues();
-    
-    // Verifica se já existe um template com o novo nome
     const existe = dados.some((row, index) => index > 0 && String(row[0]).trim() === nomeNovo.trim());
+    
     if (existe) {
        return { success: false, message: "Já existe um template com esse nome." };
     }
 
-    // Busca e renomeia
     for (let i = 1; i < dados.length; i++) {
       if (String(dados[i][0]).trim() === String(nomeAntigo).trim()) { 
         sheet.getRange(i + 1, 1).setValue(nomeNovo);
         sheet.getRange(i + 1, 4).setValue(new Date()); 
-        return { success: true, message: "Template renomeado com sucesso!" }; 
+        return { success: true, message: "Template renomeado com sucesso!" };
       }
     }
     return { success: false, message: 'Template original não encontrado.' };
@@ -269,10 +276,13 @@ function carregarTemplateEspecifico(nome) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName(CONFIG.ABA_TEMPLATES);
     if (!sheet) throw new Error('Base de templates não encontrada.');
+    
     const dados = sheet.getDataRange().getValues();
     const templateRow = dados.find(row => String(row[0]).trim() === String(nome).trim());
+    
     if (templateRow) {
       let corpo = String(templateRow[2] || '');
+      
       if (corpo.startsWith("DRIVE:")) {
         try {
           const id = corpo.split(":")[1];
@@ -305,6 +315,7 @@ function excluirTemplate(nome) {
   for (let i = 1; i < dados.length; i++) {
     if (dados[i][0] === nome) { 
       const conteudo = String(dados[i][2]);
+      
       if (conteudo.startsWith("DRIVE:")) {
         try {
           const id = conteudo.split(":")[1];
@@ -334,7 +345,6 @@ function exportarTemplatesLista(nomesArray) {
       
       for(let i = 1; i < dados.length; i++) {
          const nomeAtual = String(dados[i][0]);
-         
          if (nomesArray.includes(nomeAtual)) {
              let corpo = String(dados[i][2]);
              
@@ -343,7 +353,7 @@ function exportarTemplatesLista(nomesArray) {
                      const id = corpo.split(":")[1];
                      corpo = DriveApp.getFileById(id).getBlob().getDataAsString();
                  } catch(e) {
-                     continue; 
+                     continue;
                  }
              }
              
@@ -382,9 +392,11 @@ function importarTemplatesGeral(listaTemplates) {
 function enviarEmailTeste(html, assunto, destinatario, anexosBase64, imagensInline) {
   try {
     if (!destinatario || !destinatario.includes('@')) throw new Error("E-mail de teste inválido.");
+    
     const dados = getSheetDataComFiltro();
     let corpoFinal = html;
     let assuntoFinal = assunto;
+    
     if (dados.length > 1) {
       const cabecalhos = dados[0];
       const linhaTeste = dados[1];
@@ -393,10 +405,12 @@ function enviarEmailTeste(html, assunto, destinatario, anexosBase64, imagensInli
     }
 
     const htmlTeste = `${corpoFinal}<br><br><hr><p style="color:#666; font-size:11px; font-family:sans-serif;">⚠️ [MODO TESTE] Exemplo com dados da 1ª linha visível.</p>`;
+    
     const options = {
       htmlBody: htmlTeste,
       name: CONFIG.NOME_REMETENTE
     };
+    
     if (anexosBase64 && anexosBase64.length > 0) {
       options.attachments = processarBlobs(anexosBase64);
     }
@@ -419,8 +433,8 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
     if (!dados || dados.length < 2) return { success: false, message: 'Nenhuma linha visível para envio.'};
     
     const cotaRestante = MailApp.getRemainingDailyQuota();
-    const quantidadeEnvio = dados.length - 1; 
-
+    const quantidadeEnvio = dados.length - 1;
+    
     if (cotaRestante < quantidadeEnvio) {
       return { 
         success: false, 
@@ -435,6 +449,7 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
     
     const indexEmail = identificarColunaEmail(cabecalhos);
     const indexEmpresa = cabecalhos.findIndex(h => /^(empresa|raz[aã]o\s?social|cliente)$/i.test(String(h).trim()));
+    
     if (indexEmail === -1) return { success: false, message: 'Erro: Coluna "Email" ou "E-mail" não encontrada.' };
     
     const ccGlobalArray = (ccGlobalString && ccGlobalString.trim() !== "") 
@@ -459,6 +474,7 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
       try {
         const celulaEmail = String(linha[indexEmail]);
         const emailsDaLinha = celulaEmail.split(/[;,]/).map(e => e.trim()).filter(isValidEmail);
+        
         if (emailsDaLinha.length > 0) {
           const emailPara = emailsDaLinha[0];
           const ccDaLinha = emailsDaLinha.slice(1);
@@ -466,8 +482,8 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
 
           let corpo = personalizarTexto(htmlFinal, cabecalhos, linha);
           const assunto = personalizarTexto(assuntoFinal, cabecalhos, linha);
-          
           const nomeEmpresa = (indexEmpresa > -1 && linha[indexEmpresa]) ? linha[indexEmpresa] : "-";
+          
           let trackingId = "";
           if (trackingUrl) {
              trackingId = Utilities.getUuid();
@@ -479,11 +495,13 @@ function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBas
             htmlBody: corpo, 
             name: CONFIG.NOME_REMETENTE 
           };
+          
           if (ccFinal.length > 0) options.cc = ccFinal.join(',');
           if (arquivosBlobs.length > 0) options.attachments = arquivosBlobs;
           if (Object.keys(mapImagensInline).length > 0) options.inlineImages = mapImagensInline;
 
           GmailApp.sendEmail(emailPara, assunto, 'Email em formato HTML.', options);
+          
           if (trackingId) {
             const todosDestinatarios = [emailPara, ...ccFinal].join('; ');
             registrarEnvioIndividual(trackingId, todosDestinatarios, nomeEmpresa, assunto, "ENVIADO");
@@ -545,7 +563,7 @@ function registrarEnvioIndividual(id, destinatarios, empresa, assunto, status) {
     sheet.setColumnWidth(5, 120); 
     sheet.setColumnWidth(6, 130); 
     sheet.setColumnWidth(7, 130); 
-    sheet.setColumnWidth(8, 280); 
+    sheet.setColumnWidth(8, 280);
   }
   
   const dataHora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
@@ -555,6 +573,7 @@ function registrarEnvioIndividual(id, destinatarios, empresa, assunto, status) {
 function registrarLogBatch(assunto, total, sucessos, erros, detalhesArray) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(CONFIG.ABA_RELATORIO);
+  
   if (!sheet) { 
     sheet = ss.insertSheet(CONFIG.ABA_RELATORIO);
     const headers = ['Data/Hora', 'Assunto do Email', 'Total', 'Sucesso', 'Falhas', 'Detalhes dos Erros'];
@@ -580,6 +599,7 @@ function gerarPreview(htmlEditor, assuntoEditor, index) {
   try {
     const dados = getSheetDataComFiltro();
     if (!dados || dados.length < 2) return { error: 'Nenhuma linha de dados disponível para visualização.' };
+    
     const maxIndex = dados.length - 2;
     const safeIndex = Math.max(0, Math.min(index, maxIndex));
     const cabecalhos = dados[0];
@@ -605,10 +625,12 @@ function gerarPreview(htmlEditor, assuntoEditor, index) {
 function personalizarTexto(texto, cabecalhos, linha) {
   if (!texto) return "";
   const mapaColunas = {};
+  
   cabecalhos.forEach((header, index) => {
     const chaveLimpa = String(header).replace(/<[^>]+>/g, "").trim().toLowerCase();
     mapaColunas[chaveLimpa] = index;
   });
+  
   return texto.replace(/\{\{([\s\S]+?)\}\}/g, (match, conteudo) => {
     const chave = conteudo.replace(/<[^>]+>/g, "").replace(/&nbsp;/gi, " ").trim().toLowerCase();
     const index = mapaColunas[chave];
@@ -643,10 +665,12 @@ function processarBlobs(anexosBase64) {
 function prepararBlobsInline(listaImagens) {
   if (!listaImagens || listaImagens.length === 0) return {};
   const inlineImages = {};
+  
   listaImagens.forEach(img => {
     const blob = Utilities.newBlob(Utilities.base64Decode(img.data), img.type, img.cid);
     inlineImages[img.cid] = blob;
   });
+  
   return inlineImages;
 }
 
