@@ -569,6 +569,11 @@
   </main>
 
   <script>
+    // Auto Email v3.3.0 — atualizado em 16/11/2026.
+    // Copyright © 2026 Ademir Varjão. Todos os direitos reservados.
+    // Licença proprietária: uso somente mediante autorização prévia e expressa,
+    // por escrito, de Ademir Varjão. Consulte LICENSE.
+
     // ESTADO DA APLICAÇÃO
     let lastFocused = 'body';
     const userEmail = "<?= userEmail ?>";
@@ -620,7 +625,7 @@
     const toggleLoad = (show) => { document.getElementById('loading').style.display = show ? 'flex' : 'none'; };
     
     function mostrarSobre() {
-      alert("Auto Email v3.2\n\nProjeto original de: Ademir Varjão\nÚltima atualização em: 06/07/2026");
+      alert("Auto Email v3.3.0\n\nDesenvolvido por: Ademir Varjão\nÚltima atualização em: 16/11/2026\n\n© 2026 Ademir Varjão. Todos os direitos reservados.\nUso somente mediante autorização prévia e expressa, por escrito, do titular.");
     }
 
     // EDITOR FUNCTIONS
