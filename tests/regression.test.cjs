@@ -110,7 +110,7 @@ function frontend() {
   const readers = [];
   const alerts = [];
   const nodes = [];
-  const container = { innerHTML: '', appendChild: node => nodes.push(node) };
+  const container = { innerHTML: '', style: {}, appendChild: node => nodes.push(node) };
   const context = vm.createContext({
     window: {}, console,
     alert: message => alerts.push(message),
@@ -195,4 +195,39 @@ test('falha ao carregar variáveis usa o tratamento de erro existente', () => {
   } } };
   context.carregarVariaveis();
   assert.equal(failureHandler, context.handleError);
+});
+
+
+test('layout original preservado: CSS e marcação, exceto atributos invisíveis de segurança do iframe', () => {
+  const { createHash } = require('node:crypto');
+  const hash = text => createHash('sha256').update(text).digest('hex');
+  assert.equal(hash(painel.match(/<style>[\s\S]*?<\/style>/)[0]), '768ffa4f1bf788cd8ec0e5d34adc2e76be02d867754b17f2df832a8099c1cf73');
+  assert.equal(hash(painel.split('<script>')[0].replace(' sandbox="allow-same-origin" referrerpolicy="no-referrer"', '')), 'bfc044a314d310ffb1ce7f2120e3c7d480a736711c23520a2ac218558bd2343f');
+});
+
+test('painel continua automaticamente apenas lotes normais; respeita pausa e falhas', () => {
+  const { context, alerts } = frontend();
+  const continued = [];
+  context.confirm = () => false;
+  context.google = { script: { run: {
+    withSuccessHandler() { return this; },
+    withFailureHandler() { return this; },
+    continuarEnvioEmMassa(id) { continued.push(id); }
+  } } };
+  context.receberResultadoEnvio({ success: true, pending: true, jobId: 'job' });
+  assert.deepEqual(continued, ['job']);
+  context.receberResultadoEnvio({ success: true, pending: true, paused: true, jobId: 'job', message: 'Cota insuficiente' });
+  context.receberResultadoEnvio({ success: false, message: 'Falha' });
+  context.receberResultadoEnvio({ success: true, message: 'Concluído' });
+  assert.equal(continued.length, 1);
+  assert.deepEqual(alerts, ['Falha', 'Concluído']);
+});
+
+test('envio de teste e disparo aguardam anexos pendentes', () => {
+  const { context, alerts } = frontend();
+  context.handleFileSelect({ files: [file('aguardando', 1)] });
+  context.enviarTeste();
+  context.enviarEmMassa();
+  assert.equal(alerts.length, 2);
+  assert.ok(alerts.every(text => /Aguarde a leitura/.test(text)));
 });
