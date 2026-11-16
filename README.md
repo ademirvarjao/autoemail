@@ -55,7 +55,7 @@ Para que o sistema funcione 100% (especialmente o rastreamento e o armazenamento
 4. **Arquivo de Painel:**
    * Clique no `+` (sinal de mais) ao lado de "Arquivos" > **HTML**.
    * Nomeie o arquivo exatamente como `painel` (letras minúsculas).
-   * Copie o conteúdo do arquivo `painel.html` atualizado deste projeto e cole dentro deste novo arquivo.
+   * Copie o conteúdo do arquivo `painel` atualizado deste projeto e cole dentro deste novo arquivo.
 
 ### 2. Ativação do Rastreamento (Deployment)
 Para que o pixel de rastreamento funcione, o script precisa ser publicado na web:
