@@ -214,17 +214,17 @@ function salvarNovoTemplate(nomeOriginal, nomeNovo, assunto, html) {
       conteudoFinal = "DRIVE:" + arquivo.getId();
     }
 
-    if (linhaParaAtualizar > 0 && conteudoAntigo.startsWith("DRIVE:")) {
-      try {
-        const idAntigo = conteudoAntigo.split(":")[1];
-        DriveApp.getFileById(idAntigo).setTrashed(true);
-      } catch(e) { }
-    }
-
     const timestampData = new Date();
     
     if (linhaParaAtualizar > 0) {
       sheet.getRange(linhaParaAtualizar, 1, 1, 4).setValues([[nomeNovo, assunto, conteudoFinal, timestampData]]);
+      // Só descarte o arquivo anterior depois de persistir o novo conteúdo.
+      if (conteudoAntigo.startsWith("DRIVE:")) {
+        try {
+          const idAntigo = conteudoAntigo.split(":")[1];
+          DriveApp.getFileById(idAntigo).setTrashed(true);
+        } catch(e) { }
+      }
       return { success: true, message: `Template "${nomeNovo}" atualizado com sucesso!` };
     } else {
       sheet.appendRow([nomeNovo, assunto, conteudoFinal, timestampData]);
@@ -278,7 +278,7 @@ function carregarTemplateEspecifico(nome) {
     if (!sheet) throw new Error('Base de templates não encontrada.');
     
     const dados = sheet.getDataRange().getValues();
-    const templateRow = dados.find(row => String(row[0]).trim() === String(nome).trim());
+    const templateRow = dados.slice(1).find(row => String(row[0]).trim() === String(nome).trim());
     
     if (templateRow) {
       let corpo = String(templateRow[2] || '');
@@ -372,10 +372,14 @@ function exportarTemplatesLista(nomesArray) {
 
 function importarTemplatesGeral(listaTemplates) {
   try {
+     if (!Array.isArray(listaTemplates)) throw new Error("Formato de templates inválido.");
      let adicionados = 0;
      for(let t of listaTemplates) {
-        if(t.nome && t.corpo) {
-           salvarNovoTemplate(t.nome, t.nome, t.assunto || '', t.corpo);
+        if(t && typeof t.nome === 'string' && t.nome.trim() && typeof t.corpo === 'string' && t.corpo) {
+           const resultado = salvarNovoTemplate(t.nome, t.nome, t.assunto || '', t.corpo);
+           if (!resultado.success) {
+             throw new Error(`${adicionados} templates importados antes da falha. ${resultado.message}`);
+           }
            adicionados++;
         }
      }
@@ -624,7 +628,7 @@ function gerarPreview(htmlEditor, assuntoEditor, index) {
 
 function personalizarTexto(texto, cabecalhos, linha) {
   if (!texto) return "";
-  const mapaColunas = {};
+  const mapaColunas = Object.create(null);
   
   cabecalhos.forEach((header, index) => {
     const chaveLimpa = String(header).replace(/<[^>]+>/g, "").trim().toLowerCase();
