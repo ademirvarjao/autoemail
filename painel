@@ -561,7 +561,7 @@
 
         <div class="preview-body">
            <div class="paper-sheet">
-             <iframe id="framePreview"></iframe>
+             <iframe id="framePreview" sandbox="allow-same-origin" referrerpolicy="no-referrer"></iframe>
            </div>
         </div>
       </div>
@@ -584,7 +584,8 @@
     // INICIALIZAÇÃO
     window.onload = () => { 
       carregarVariaveis();
-      atualizarListaTemplates(); 
+      atualizarListaTemplates();
+      verificarEnvioPendente();
       
       document.getElementById('editorDiv').addEventListener('click', (e) => {
         if(e.target.tagName === 'IMG') {
@@ -1033,6 +1034,10 @@
     // =========================================
     
     function enviarTeste() {
+      if (state.totalSizeBytes !== state.anexos.reduce((total, anexo) => total + anexo.size, 0)) {
+        alert('Aguarde a leitura dos anexos terminar antes de enviar.');
+        return;
+      }
       const assunto = document.getElementById('inpSubject').value;
       const corpoOriginal = document.getElementById('editorDiv').innerHTML;
       
@@ -1057,6 +1062,10 @@
     }
 
     function enviarEmMassa() {
+      if (state.totalSizeBytes !== state.anexos.reduce((total, anexo) => total + anexo.size, 0)) {
+        alert('Aguarde a leitura dos anexos terminar antes de enviar.');
+        return;
+      }
       const assunto = document.getElementById('inpSubject').value;
       const corpo = document.getElementById('editorDiv').innerHTML;
       const cc = document.getElementById('inpGlobalCC').value;
@@ -1093,15 +1102,45 @@
           const dados = processarHtmlComImagens(corpo);
 
           google.script.run
-            .withSuccessHandler((r) => { 
-              toggleLoad(false); 
-              alert(r.message); 
-            })
+            .withSuccessHandler(receberResultadoEnvio)
             .withFailureHandler(handleError)
             .executarEnvioEmMassa(dados.html, assunto, cc, state.anexos, dados.imagens);
         })
         .withFailureHandler(handleError)
         .contarDestinatarios();
+    }
+
+    // Cada chamada processa um lote curto. O snapshot e o checkpoint sobrevivem ao fechamento do painel.
+    function receberResultadoEnvio(r) {
+      toggleLoad(false);
+      if (!r || !r.success || !r.pending) {
+        alert(r && r.message ? r.message : 'Não foi possível obter o resultado. Reabra o painel para consultar o envio.');
+        return;
+      }
+      if (r.paused && !confirm(r.message + '\n\nContinuar agora?')) return;
+      toggleLoad(true);
+      google.script.run
+        .withSuccessHandler(receberResultadoEnvio)
+        .withFailureHandler(handleError)
+        .continuarEnvioEmMassa(r.jobId);
+    }
+
+    function verificarEnvioPendente() {
+      google.script.run
+        .withSuccessHandler((r) => {
+          if (!r) return;
+          if (confirm(r.message)) {
+            receberResultadoEnvio({ ...r, paused: false });
+          } else if (confirm('Deseja cancelar o envio pendente? OK cancela; Cancelar mantém salvo para retomar depois.')) {
+            toggleLoad(true);
+            google.script.run
+              .withSuccessHandler(receberResultadoEnvio)
+              .withFailureHandler(handleError)
+              .cancelarEnvioEmMassa(r.jobId);
+          }
+        })
+        .withFailureHandler(handleError)
+        .getEnvioPendente();
     }
 
     // PREVIEW E NAVEGAÇÃO
@@ -1129,7 +1168,10 @@
         .withSuccessHandler((r) => {
           toggleLoad(false);
           if(r.error) { 
-             document.getElementById('framePreview').srcdoc = `<div style="color:red; font-family:sans-serif; padding:20px;">${r.error}</div>`; 
+             const erro = document.createElement('div');
+             erro.style.cssText = 'color:red; font-family:sans-serif; padding:20px;';
+             erro.textContent = r.error;
+             document.getElementById('framePreview').srcdoc = erro.outerHTML;
              return; 
           }
           
@@ -1142,10 +1184,10 @@
           document.getElementById('previewSubject').innerText = r.assuntoPreview;
           
           const iframe = document.getElementById('framePreview');
-          const doc = iframe.contentWindow.document;
-          
-          doc.open();
-          doc.write(`
+          // Sem allow-scripts: preserva acesso à altura, mas bloqueia scripts, eventos, formulários e pop-ups.
+          // A CSP também bloqueia conteúdo ativo aninhado, mantendo imagens e estilos do email.
+          iframe.srcdoc = `<html><head>
+            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: http: data:; style-src 'unsafe-inline' https: http:; font-src https: data:; base-uri 'none'; form-action 'none'">
             <style>
               body { 
                 margin: 0; 
@@ -1157,10 +1199,9 @@
               }
               img { max-width: 100%; height: auto; }
               p { margin-bottom: 10px; }
-            </style>
+            </style></head><body>
             ${r.htmlPreview}
-          `);
-          doc.close();
+          </body></html>`;
           
           setTimeout(ajustarAlturaIframe, 100);
         })

@@ -18,6 +18,8 @@ const CONFIG = {
   ABA_DADOS: 'Contatos',
   NOME_REMETENTE: 'JR Contabilidade', 
   DELAY_ENVIO_MS: 1500,
+  TAMANHO_LOTE: 20,
+  TEMPO_LOTE_MS: 60000,
   MISSING_VAR_FALLBACK: '',
   CORES_LOG: {
     SUCESSO: '#d9ead3',
@@ -34,44 +36,54 @@ const CONFIG = {
 
 function doGet(e) {
   try {
-    const id = e.parameter.id;
+    const id = e && e.parameter && e.parameter.id;
     if (id) {
       registrarAbertura(id);
     }
   } catch (err) {
     console.error("Erro no rastreamento: " + err);
   }
+  // Compatibilidade legada: HtmlOutput não é uma resposta image/gif.
+  // O handler pode registrar a requisição, mas não garante um pixel carregável.
   const pixelBase64 = "R0lGODlhAQABAPAAAAAAAAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==";
   return HtmlService.createHtmlOutput(`<img src="data:image/gif;base64,${pixelBase64}" alt="" />`);
 }
 
 function registrarAbertura(id) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(CONFIG.ABA_RASTREAMENTO);
-  if (!sheet) return;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const planilhaId = PropertiesService.getScriptProperties().getProperty('RASTREAMENTO_PLANILHA_ID');
+    const ss = planilhaId ? SpreadsheetApp.openById(planilhaId) : SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) return;
+    const sheet = ss.getSheetByName(CONFIG.ABA_RASTREAMENTO);
+    if (!sheet) return;
   
-  const COL_ID = 7; 
-  const COL_STATUS = 4;
-  const COL_1_LEITURA = 5;
-  const COL_ULT_LEITURA = 6;
+    const COL_ID = 7;
+    const COL_STATUS = 4;
+    const COL_1_LEITURA = 5;
+    const COL_ULT_LEITURA = 6;
 
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return;
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) return;
   
-  const idRange = sheet.getRange(2, COL_ID + 1, lastRow - 1, 1);
-  const encontrado = idRange.createTextFinder(String(id)).matchEntireCell(true).findNext();
-  if (!encontrado) return;
+    const idRange = sheet.getRange(2, COL_ID + 1, lastRow - 1, 1);
+    const encontrado = idRange.createTextFinder(String(id)).matchEntireCell(true).findNext();
+    if (!encontrado) return;
   
-  const linha = encontrado.getRow();
-  const dataAgora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
-  const primeiraLeitura = sheet.getRange(linha, COL_1_LEITURA + 1).getValue();
+    const linha = encontrado.getRow();
+    const dataAgora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
+    const primeiraLeitura = sheet.getRange(linha, COL_1_LEITURA + 1).getValue();
   
-  if (!primeiraLeitura || primeiraLeitura === "") {
-    sheet.getRange(linha, COL_1_LEITURA + 1).setValue(dataAgora);
+    if (!primeiraLeitura || primeiraLeitura === "") {
+      sheet.getRange(linha, COL_1_LEITURA + 1).setValue(dataAgora);
+    }
+
+    sheet.getRange(linha, COL_ULT_LEITURA + 1).setValue(dataAgora);
+    sheet.getRange(linha, COL_STATUS + 1).setValue("LIDO / ABERTO").setBackground(CONFIG.CORES_LOG.ABERTO);
+  } finally {
+    lock.releaseLock();
   }
-
-  sheet.getRange(linha, COL_ULT_LEITURA + 1).setValue(dataAgora);
-  sheet.getRange(linha, COL_STATUS + 1).setValue("LIDO / ABERTO").setBackground(CONFIG.CORES_LOG.ABERTO);
 }
 
 // ====================================================================
@@ -113,7 +125,7 @@ function mostrarUrlRastreamento() {
   try {
     const url = getTrackingUrl();
     if (url) {
-      Browser.msgBox("Status do Rastreamento", `O sistema está configurado corretamente.\nURL do Web App: ${url}`, Browser.Buttons.OK);
+      Browser.msgBox("Status do Rastreamento", `URL configurada (não garante a detecção de aberturas; consulte as limitações no manual).\nURL do Web App: ${url}`, Browser.Buttons.OK);
     } else {
       Browser.msgBox("Atenção", "O rastreamento ainda não está ativo. Você precisa implantar este script como 'App da Web'. Veja o manual.", Browser.Buttons.OK);
     }
@@ -430,119 +442,225 @@ function enviarEmailTeste(html, assunto, destinatario, anexosBase64, imagensInli
   }
 }
 
-function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBase64, imagensInline) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+// O conteúdo grande fica no Drive; apenas o checkpoint pequeno fica em UserProperties.
+// Helpers terminados em "_" não podem ser chamados por google.script.run.
+function chaveEnvio_() {
+  return 'AUTOEMAIL_ENVIO_' + SpreadsheetApp.getActiveSpreadsheet().getId();
+}
+
+function lerEnvio_() {
+  const value = PropertiesService.getUserProperties().getProperty(chaveEnvio_());
+  return value ? JSON.parse(value) : null;
+}
+
+function salvarEnvio_(job) {
+  PropertiesService.getUserProperties().setProperty(chaveEnvio_(), JSON.stringify(job));
+}
+
+function comLockEnvio_(callback) {
+  const lock = LockService.getUserLock();
+  if (!lock.tryLock(1000)) return { success: false, message: 'Já existe um lote em processamento. Aguarde e reabra o painel para retomar.' };
   try {
+    return callback();
+  } catch (e) {
+    console.error(e);
+    return { success: false, message: 'Envio interrompido: ' + e.message + '\nReabra o painel para consultar e retomar o checkpoint salvo.' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function destinatariosDaLinha_(valor, ccGlobal) {
+  const emails = String(valor || '').split(/[;,]/).map(e => e.trim()).filter(isValidEmail);
+  if (!emails.length) return { para: '', cc: [], quantidade: 0 };
+  const cc = [...new Set([...emails.slice(1), ...ccGlobal])];
+  // Conta conservadora: o Gmail pode descontar também endereços repetidos entre Para e CC.
+  return { para: emails[0], cc: cc, quantidade: 1 + cc.length };
+}
+
+function respostaEnvio_(job, pausado, mensagem) {
+  return {
+    success: true, pending: true, paused: !!pausado, jobId: job.id,
+    processados: job.cursor, total: job.total,
+    message: mensagem || `Enviando: ${job.cursor} / ${job.total}`
+  };
+}
+
+function getEnvioPendente() {
+  const job = lerEnvio_();
+  return job ? respostaEnvio_(job, true,
+    `Há um envio pendente: ${job.cursor} / ${job.total} linhas processadas. Retomar usando os dados originais?` +
+    (job.emVoo !== null ? `\nO registro visível ${job.emVoo + 1} tem resultado incerto e NÃO será reenviado automaticamente. Confira a pasta Enviados.` : '')) : null;
+}
+
+function executarEnvioEmMassa(htmlFinal, assuntoFinal, ccGlobalString, anexosBase64, imagensInline) {
+  return comLockEnvio_(() => {
+    const existente = lerEnvio_();
+    if (existente) return respostaEnvio_(existente, true, 'Já existe um envio pendente. Retomar os dados originais?');
     const dados = getSheetDataComFiltro();
-    if (!dados || dados.length < 2) return { success: false, message: 'Nenhuma linha visível para envio.'};
-    
-    const cotaRestante = MailApp.getRemainingDailyQuota();
-    const quantidadeEnvio = dados.length - 1;
-    
-    if (cotaRestante < quantidadeEnvio) {
-      return { 
-        success: false, 
-        message: `⛔ OPERAÇÃO CANCELADA POR SEGURANÇA\n\nSua cota diária restante é de: ${cotaRestante} emails.\nVocê tentou enviar para: ${quantidadeEnvio} pessoas.\n\nReduza a lista ou tente amanhã.` 
-      };
-    }
-
-    let trackingUrl = getTrackingUrl();
-    const cabecalhos = dados[0];
-    const linhas = dados.slice(1);
-    const totalLinhas = linhas.length;
-    
-    const indexEmail = identificarColunaEmail(cabecalhos);
-    const indexEmpresa = cabecalhos.findIndex(h => /^(empresa|raz[aã]o\s?social|cliente)$/i.test(String(h).trim()));
-    
+    if (!dados || dados.length < 2) return { success: false, message: 'Nenhuma linha visível para envio.' };
+    const indexEmail = identificarColunaEmail(dados[0]);
     if (indexEmail === -1) return { success: false, message: 'Erro: Coluna "Email" ou "E-mail" não encontrada.' };
-    
-    const ccGlobalArray = (ccGlobalString && ccGlobalString.trim() !== "") 
-      ? ccGlobalString.split(/[,;]/).map(e => e.trim()).filter(isValidEmail) 
-      : [];
-      
-    const arquivosBlobs = (anexosBase64 && anexosBase64.length > 0) 
-      ? processarBlobs(anexosBase64) 
-      : [];
-      
-    let mapImagensInline = {};
-    if (imagensInline && imagensInline.length > 0) {
-      mapImagensInline = prepararBlobsInline(imagensInline);
+    const cc = String(ccGlobalString || '').split(/[,;]/).map(e => e.trim()).filter(isValidEmail);
+    const quantidade = dados.slice(1).reduce((total, linha) => total + destinatariosDaLinha_(linha[indexEmail], cc).quantidade, 0);
+    const cota = MailApp.getRemainingDailyQuota();
+    if (quantidade > cota) return { success: false, message:
+      `⛔ OPERAÇÃO CANCELADA POR SEGURANÇA\nCota restante: ${cota} destinatários. Necessários (incluindo CC por mensagem): ${quantidade}.` };
+    // Datas continuam com a mesma representação usada por personalizarTexto, mesmo após JSON.
+    const snapshot = dados.map(row => row.map(value => value instanceof Date
+      ? Utilities.formatDate(value, Session.getScriptTimeZone(), 'dd/MM/yyyy') : value));
+    const payload = { dados: snapshot, html: htmlFinal, assunto: assuntoFinal, cc: cc,
+      anexos: anexosBase64 || [], imagens: imagensInline || [], trackingUrl: getTrackingUrl() };
+    // Valide anexos antes de criar um trabalho persistente.
+    processarBlobs(payload.anexos);
+    prepararBlobsInline(payload.imagens);
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    PropertiesService.getScriptProperties().setProperty('RASTREAMENTO_PLANILHA_ID', ss.getId());
+    const id = Utilities.getUuid();
+    // createFile(blob) evita o limite de 10 MB da sobrecarga textual, inclusive com anexos em Base64.
+    const file = DriveApp.createFile(Utilities.newBlob(JSON.stringify(payload), 'application/json', 'AutoEmail_Envio_' + id + '.json'));
+    const job = { id: id, fileId: file.getId(), cursor: 0, total: dados.length - 1,
+      sucesso: 0, erro: 0, avisos: [], emVoo: null };
+    try {
+      salvarEnvio_(job);
+    } catch (e) {
+      file.setTrashed(true);
+      throw e;
     }
+    return processarLote_(job);
+  });
+}
 
-    let sucesso = 0;
-    let erro = 0;
-    const listaErros = [];
-    
-    for (let i = 0; i < linhas.length; i++) {
-      const linha = linhas[i];
+function continuarEnvioEmMassa(jobId) {
+  return comLockEnvio_(() => {
+    const job = lerEnvio_();
+    if (!job || job.id !== jobId) return { success: false, message: 'Envio não encontrado ou já concluído.' };
+    return processarLote_(job);
+  });
+}
+
+function avisoEnvio_(job, mensagem, prioritario) {
+  // Limite por valor em UserProperties: retenha até dez avisos curtos.
+  // Resultados incertos têm prioridade sobre avisos de rastreamento.
+  if (prioritario && job.avisos.length >= 10) job.avisos.pop();
+  if (job.avisos.length < 10) job.avisos.push(String(mensagem).slice(0, 120));
+}
+
+function avisarProgressoEnvio_(job, finalizado) {
+  try {
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      finalizado ? 'Processo finalizado!' : `Progresso: ${Math.round(job.cursor / job.total * 100)}%`,
+      finalizado ? '✅ Concluído' : '🚀 Enviando...', finalizado ? 5 : 3);
+  } catch (e) {
+    console.error('Não foi possível exibir o progresso: ' + e);
+  }
+}
+
+function processarLote_(job) {
+  const inicio = Date.now();
+  const file = DriveApp.getFileById(job.fileId);
+  const payload = JSON.parse(file.getBlob().getDataAsString());
+  const cabecalhos = payload.dados[0];
+  const linhas = payload.dados.slice(1);
+  const indexEmail = identificarColunaEmail(cabecalhos);
+  const indexEmpresa = cabecalhos.findIndex(h => /^(empresa|raz[aã]o\s?social|cliente)$/i.test(String(h).trim()));
+  const arquivos = processarBlobs(payload.anexos);
+  const imagens = prepararBlobsInline(payload.imagens);
+  // Se a execução anterior terminou entre o envio e o checkpoint, não arrisque duplicar.
+  if (job.emVoo !== null) {
+    avisoEnvio_(job, `Registro visível ${job.emVoo + 1}: resultado incerto. Confira Enviados; não reenviado.`, true);
+    job.erro++;
+    job.cursor = job.emVoo + 1;
+    job.emVoo = null;
+    salvarEnvio_(job);
+  }
+  let processados = 0;
+  while (job.cursor < linhas.length && processados < CONFIG.TAMANHO_LOTE && Date.now() - inicio < CONFIG.TEMPO_LOTE_MS) {
+    const i = job.cursor;
+    const linha = linhas[i];
+    const dest = destinatariosDaLinha_(linha[indexEmail], payload.cc);
+    if (!dest.quantidade) {
+      job.erro++;
+      avisoEnvio_(job, `Registro visível ${i + 1}: Nenhum e-mail válido encontrado.`);
+      job.cursor++;
+      salvarEnvio_(job);
+      processados++;
+      if (processados % 5 === 0) avisarProgressoEnvio_(job, false);
+      continue;
+    }
+    if (MailApp.getRemainingDailyQuota() < dest.quantidade) {
+      return respostaEnvio_(job, true, 'Cota insuficiente para a próxima mensagem. O envio está salvo. Retome quando houver cota.');
+    }
+    let corpo = personalizarTexto(payload.html, cabecalhos, linha);
+    const assunto = personalizarTexto(payload.assunto, cabecalhos, linha);
+    const trackingId = payload.trackingUrl ? Utilities.getUuid() : '';
+    if (trackingId) {
+      const separador = payload.trackingUrl.includes('?') ? '&' : '?';
+      const url = payload.trackingUrl + separador + 'id=' + encodeURIComponent(trackingId);
+      corpo += `<img src="${url.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" width="1" height="1" style="border:0;" alt="" />`;
+    }
+    const options = { htmlBody: corpo, name: CONFIG.NOME_REMETENTE };
+    if (dest.cc.length) options.cc = dest.cc.join(',');
+    if (arquivos.length) options.attachments = arquivos;
+    if (Object.keys(imagens).length) options.inlineImages = imagens;
+    job.emVoo = i;
+    salvarEnvio_(job); // Antes de chamar o Gmail, nunca depois.
+    try {
+      GmailApp.sendEmail(dest.para, assunto, 'Email em formato HTML.', options);
+    } catch (e) {
+      // Até um erro de rede pode ocorrer após o Gmail aceitar a mensagem.
+      return respostaEnvio_(job, true, `Tentativa interrompida no registro visível ${i + 1} (${dest.para}): ` + String(e.message).slice(0, 250) +
+        '\nConfira a pasta Enviados. Ao retomar, esta tentativa será ignorada para evitar duplicação.');
+    }
+    job.sucesso++;
+    job.cursor++;
+    job.emVoo = null;
+    salvarEnvio_(job);
+    // Uma falha no relatório não transforma mensagem já enviada em falha de envio.
+    if (trackingId) {
       try {
-        const celulaEmail = String(linha[indexEmail]);
-        const emailsDaLinha = celulaEmail.split(/[;,]/).map(e => e.trim()).filter(isValidEmail);
-        
-        if (emailsDaLinha.length > 0) {
-          const emailPara = emailsDaLinha[0];
-          const ccDaLinha = emailsDaLinha.slice(1);
-          const ccFinal = [...new Set([...ccDaLinha, ...ccGlobalArray])];
-
-          let corpo = personalizarTexto(htmlFinal, cabecalhos, linha);
-          const assunto = personalizarTexto(assuntoFinal, cabecalhos, linha);
-          const nomeEmpresa = (indexEmpresa > -1 && linha[indexEmpresa]) ? linha[indexEmpresa] : "-";
-          
-          let trackingId = "";
-          if (trackingUrl) {
-             trackingId = Utilities.getUuid();
-             const pixelHtml = `<img src="${trackingUrl}?id=${trackingId}" style="width:1px; height:1px; display:none;" alt="" />`;
-             corpo += pixelHtml;
-          }
-
-          const options = { 
-            htmlBody: corpo, 
-            name: CONFIG.NOME_REMETENTE 
-          };
-          
-          if (ccFinal.length > 0) options.cc = ccFinal.join(',');
-          if (arquivosBlobs.length > 0) options.attachments = arquivosBlobs;
-          if (Object.keys(mapImagensInline).length > 0) options.inlineImages = mapImagensInline;
-
-          GmailApp.sendEmail(emailPara, assunto, 'Email em formato HTML.', options);
-          
-          if (trackingId) {
-            const todosDestinatarios = [emailPara, ...ccFinal].join('; ');
-            registrarEnvioIndividual(trackingId, todosDestinatarios, nomeEmpresa, assunto, "ENVIADO");
-          }
-          
-          sucesso++;
-          Utilities.sleep(CONFIG.DELAY_ENVIO_MS);
-        } else {
-           erro++;
-           listaErros.push(`Linha ${i+2}: Nenhum e-mail válido encontrado.`);
-        }
-
-        if (i % 5 === 0) ss.toast(`Progresso: ${Math.round(((i+1)/totalLinhas)*100)}%`, '🚀 Enviando...', 3);
-      } catch (e) { 
-        erro++; 
-        listaErros.push(`Linha ${i+2}: ${e.message}`);
-        if (String(e).includes("Limit Exceeded") || String(e).includes("too many times")) {
-           listaErros.push("⚠️ ERRO CRÍTICO: Limite do Gmail atingido. Parando envios imediatamente.");
-           break; 
-        }
+        registrarEnvioIndividual(trackingId, [dest.para, ...dest.cc].join('; '),
+          indexEmpresa > -1 ? linha[indexEmpresa] || '-' : '-', assunto, 'ENVIADO');
+      } catch (e) {
+        avisoEnvio_(job, `Registro visível ${i + 1}: enviado, mas falhou o registro de rastreamento.`);
+        salvarEnvio_(job);
       }
     }
-    
-    registrarLogBatch(assuntoFinal, totalLinhas, sucesso, erro, listaErros);
-    ss.toast('Processo finalizado!', '✅ Concluído', 5);
-    
-    let msgRetorno = `✅ Processamento Finalizado!\n\n📤 Enviados: ${sucesso}\n❌ Falhas: ${erro}`;
-    if (!trackingUrl) {
-      msgRetorno += `\n\n⚠️ Aviso: O Rastreamento de Abertura NÃO funcionou pois o script não está implantado como Web App.`;
-    } else {
-      msgRetorno += `\n\n👁️ Rastreamento Ativo: Veja a aba "${CONFIG.ABA_RASTREAMENTO}".`;
-    }
-    
-    return { success: true, message: msgRetorno };
-  } catch (e) { 
-    return { success: false, message: `Erro Fatal no Processo: ${e.toString()}` };
+    processados++;
+    if (processados % 5 === 0) avisarProgressoEnvio_(job, false);
+    Utilities.sleep(CONFIG.DELAY_ENVIO_MS);
   }
+  if (job.cursor < linhas.length) return respostaEnvio_(job, false);
+  // Se o relatório falhar, o cursor final persistido impede novos envios na retomada.
+  registrarLogBatch(payload.assunto, job.total, job.sucesso, job.erro, job.avisos);
+  PropertiesService.getUserProperties().deleteProperty(chaveEnvio_());
+  try { file.setTrashed(true); } catch (e) { console.error('Não foi possível remover o snapshot: ' + e); }
+  avisarProgressoEnvio_(job, true);
+  return { success: true, message:
+    `✅ Processamento Finalizado!\n\n📤 Enviados: ${job.sucesso}\n❌ Falhas ou resultados incertos: ${job.erro}` +
+    (job.avisos.length ? '\n\nAvisos (até 10):\n' + job.avisos.join('\n') : '') +
+    (payload.trackingUrl ? `\n\n👁️ Registros: aba "${CONFIG.ABA_RASTREAMENTO}". A detecção depende do cliente de e-mail e da limitação do endpoint HTML do Apps Script.`
+      : '\n\n⚠️ Rastreamento não configurado.') };
+}
+
+function cancelarEnvioEmMassa(jobId) {
+  return comLockEnvio_(() => {
+    const job = lerEnvio_();
+    if (!job || job.id !== jobId) return { success: false, message: 'Envio não encontrado ou já concluído.' };
+    let file;
+    let assunto = 'Envio ' + job.id;
+    try {
+      file = DriveApp.getFileById(job.fileId);
+      assunto = JSON.parse(file.getBlob().getDataAsString()).assunto;
+    } catch (e) {
+      avisoEnvio_(job, 'Snapshot indisponível no cancelamento: ' + e.message);
+    }
+    registrarLogBatch(assunto, job.total, job.sucesso, job.erro,
+      [...job.avisos, `Cancelado. Restavam ${job.total - job.cursor} registros; tentativa em andamento: ${job.emVoo !== null ? 'resultado incerto, confira Enviados' : 'não'}.`]);
+    PropertiesService.getUserProperties().deleteProperty(chaveEnvio_());
+    try { if (file) file.setTrashed(true); } catch (e) { console.error(e); }
+    return { success: true, message: 'Envio cancelado. Mensagens já enviadas não foram desfeitas.' };
+  });
 }
 
 // ====================================================================
